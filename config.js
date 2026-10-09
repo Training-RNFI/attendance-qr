@@ -1,6 +1,6 @@
 // Paste your deployed Google Apps Script Web App URL below (ends with /exec)
 const CONFIG = {
-  SCRIPT_URL: "PASTE_YOUR_WEB_APP_URL_HERE"
+  SCRIPT_URL: "https://script.google.com/macros/s/AKfycbyjKtTLoyfpWgxVxLnbA9E4nygr_w0BaXkJR8FA1S4t4r3y8MXslE5dABcHuqIY-xt9/exec"
 };
 
 function scriptReady() {
