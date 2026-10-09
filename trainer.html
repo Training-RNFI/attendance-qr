@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Create attendance QR</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<style>
+  .qr-card { text-align: center; margin-top: 24px; }
+  #qr { display: inline-block; padding: 14px; background: #fff; border: 1px solid var(--line); border-radius: 10px; }
+  #qr img { display: block; }
+  .qr-card h2 { margin: 16px 0 2px; font-size: 1.25rem; }
+  .qr-card p { margin: 0; color: var(--muted); }
+  .actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 18px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Create attendance QR</h1>
+  <p class="sub">Pick the session details, then show the QR code to your participants.</p>
+
+  <div class="card" id="formCard">
+    <label for="trainer">Trainer</label>
+    <select id="trainer"><option value="">Loading…</option></select>
+
+    <label for="topic">Topic</label>
+    <select id="topic"><option value="">Loading…</option></select>
+    <input id="topicOther" type="text" placeholder="Type the topic" maxlength="120" hidden style="margin-top:8px">
+
+    <label for="date">Date</label>
+    <input id="date" type="date">
+
+    <button id="go" class="block" type="button">Generate QR</button>
+    <div id="msg" class="msg err" hidden></div>
+  </div>
+
+  <div class="card qr-card" id="result" hidden>
+    <div id="qr"></div>
+    <h2 id="rTopic"></h2>
+    <p id="rMeta"></p>
+    <div class="actions">
+      <button id="dl" type="button">Download QR image</button>
+      <button id="copy" type="button" class="ghost">Copy link</button>
+    </div>
+    <p class="hint" id="copied" hidden>Link copied.</p>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="config.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const OTHER = "__other__";
+let currentUrl = "";
+let currentInfo = null;
+
+function todayISO() {
+  const d = new Date();
+  const off = d.getTimezoneOffset() * 60000;
+  return new Date(d - off).toISOString().slice(0, 10);
+}
+
+function showError(text) {
+  const m = $("msg");
+  m.textContent = text;
+  m.hidden = !text;
+}
+
+function fillSelect(sel, values, placeholder, withOther) {
+  sel.innerHTML = "";
+  sel.add(new Option(placeholder, ""));
+  values.forEach((v) => sel.add(new Option(v, v)));
+  if (withOther) sel.add(new Option("Other (type it)", OTHER));
+}
+
+function slug(s) {
+  return String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+}
+
+function formatDate(iso) {
+  return new Date(iso + "T00:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+}
+
+async function init() {
+  $("date").value = todayISO();
+  if (!scriptReady()) {
+    showError("Setup incomplete: add your Apps Script URL in config.js.");
+    fillSelect($("trainer"), [], "Not available", false);
+    fillSelect($("topic"), [], "Not available", false);
+    $("go").disabled = true;
+    return;
+  }
+  try {
+    const cfg = await apiGet({ action: "config" });
+    if (cfg.error) throw new Error(cfg.error);
+    fillSelect($("trainer"), cfg.trainers || [], "Select your name", false);
+    fillSelect($("topic"), cfg.topics || [], "Select a topic", true);
+  } catch (e) {
+    showError("Could not load trainers and topics. Check your internet connection and refresh.");
+    fillSelect($("trainer"), [], "Not available", false);
+    fillSelect($("topic"), [], "Not available", false);
+  }
+}
+
+$("topic").addEventListener("change", () => {
+  $("topicOther").hidden = $("topic").value !== OTHER;
+  if (!$("topicOther").hidden) $("topicOther").focus();
+});
+
+$("go").addEventListener("click", () => {
+  showError("");
+  const trainer = $("trainer").value;
+  const topic = $("topic").value === OTHER ? $("topicOther").value.trim() : $("topic").value;
+  const date = $("date").value;
+  if (!trainer) return showError("Select your name.");
+  if (!topic) return showError("Select a topic, or choose Other and type it.");
+  if (!date) return showError("Select the session date.");
+
+  // Same trainer + topic + date always gives the same session ID,
+  // so regenerating the QR never splits one session into two.
+  const sessionId = [date, slug(trainer), slug(topic)].join("_");
+
+  const url = new URL("attend.html", location.href);
+  url.searchParams.set("s", sessionId);
+  url.searchParams.set("t", trainer);
+  url.searchParams.set("p", topic);
+  url.searchParams.set("d", date);
+  currentUrl = url.toString();
+  currentInfo = { trainer, topic, date };
+
+  const box = $("qr");
+  box.innerHTML = "";
+  new QRCode(box, { text: currentUrl, width: 300, height: 300, correctLevel: QRCode.CorrectLevel.M });
+
+  $("rTopic").textContent = topic;
+  $("rMeta").textContent = trainer + ", " + formatDate(date);
+  $("copied").hidden = true;
+  $("result").hidden = false;
+  $("result").scrollIntoView({ behavior: "smooth", block: "start" });
+});
+
+function wrapText(ctx, text, maxWidth) {
+  const words = text.split(/\s+/);
+  const lines = [];
+  let line = "";
+  words.forEach((w) => {
+    const test = line ? line + " " + w : w;
+    if (ctx.measureText(test).width > maxWidth && line) { lines.push(line); line = w; } else { line = test; }
+  });
+  if (line) lines.push(line);
+  return lines;
+}
+
+$("dl").addEventListener("click", () => {
+  const qrCanvas = $("qr").querySelector("canvas");
+  if (!qrCanvas || !currentInfo) return;
+  const W = 640, pad = 40, qrSize = 420;
+  const c = document.createElement("canvas");
+  const ctx = c.getContext("2d");
+  ctx.font = "700 30px sans-serif";
+  const topicLines = wrapText(ctx, currentInfo.topic, W - pad * 2);
+  const H = pad + topicLines.length * 38 + 70 + qrSize + pad;
+  c.width = W; c.height = H;
+  ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = "#17212b"; ctx.textAlign = "center";
+  ctx.font = "700 30px sans-serif";
+  let y = pad + 30;
+  topicLines.forEach((l) => { ctx.fillText(l, W / 2, y); y += 38; });
+  ctx.fillStyle = "#5b6876"; ctx.font = "400 22px sans-serif";
+  ctx.fillText(currentInfo.trainer + ", " + formatDate(currentInfo.date), W / 2, y + 6);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(qrCanvas, (W - qrSize) / 2, y + 40, qrSize, qrSize);
+  const a = document.createElement("a");
+  a.href = c.toDataURL("image/png");
+  a.download = "attendance-qr-" + slug(currentInfo.topic) + "-" + currentInfo.date + ".png";
+  a.click();
+});
+
+$("copy").addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(currentUrl);
+    $("copied").hidden = false;
+  } catch (e) {
+    window.prompt("Copy this link:", currentUrl);
+  }
+});
+
+init();
+</script>
+</body>
+</html>

@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mark attendance</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <h1>Mark your attendance</h1>
+
+  <div class="session" id="sessionBox" hidden>
+    <b id="sTopic"></b>
+    <span id="sMeta"></span>
+  </div>
+
+  <div id="bad" class="msg err" hidden>This QR code is incomplete. Ask your trainer to show the QR code again.</div>
+
+  <div class="card" id="formCard" style="margin-top:16px" hidden>
+    <label for="name">Your name</label>
+    <div class="field-wrap">
+      <input id="name" type="text" autocomplete="off" maxlength="100" placeholder="Start typing your name">
+      <ul class="suggest" id="sug" hidden></ul>
+    </div>
+    <div class="hint" id="asmInfo" hidden></div>
+    <div class="hint" id="nameHint">If your name does not appear, just type it in full.</div>
+
+    <label for="mobile">Mobile number</label>
+    <input id="mobile" type="tel" inputmode="numeric" autocomplete="tel" maxlength="14" placeholder="10-digit mobile number">
+
+    <label for="zone">Zone</label>
+    <select id="zone"></select>
+    <input id="zoneOther" type="text" placeholder="Type your zone" maxlength="60" hidden style="margin-top:8px">
+
+    <label for="state">State</label>
+    <select id="state"></select>
+    <input id="stateOther" type="text" placeholder="Type your state" maxlength="60" hidden style="margin-top:8px">
+
+    <label for="cluster">Cluster (optional)</label>
+    <input id="cluster" type="text" maxlength="60">
+
+    <button id="submit" class="block" type="button">Mark attendance</button>
+    <div id="msg" class="msg err" hidden></div>
+  </div>
+
+  <div class="card" id="done" hidden style="margin-top:16px">
+    <div class="msg ok" id="doneMsg" style="margin-top:0"></div>
+    <button id="another" class="block ghost" type="button">Mark another person</button>
+  </div>
+</div>
+
+<script src="config.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const OTHER = "__other__";
+
+const params = new URLSearchParams(location.search);
+const session = {
+  id: params.get("s") || "",
+  trainer: params.get("t") || "",
+  topic: params.get("p") || "",
+  date: params.get("d") || ""
+};
+
+let geo = {};
+let allStates = [];
+let matched = null;
+let timer = null;
+
+function formatDate(iso) {
+  const d = new Date(iso + "T00:00:00");
+  return isNaN(d) ? iso : d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+}
+
+function showError(text) {
+  const m = $("msg");
+  m.textContent = text;
+  m.hidden = !text;
+}
+
+/* ---------- Zone and state dropdowns (with "Other" for manual entry) ---------- */
+
+function fillSelect(sel, other, values) {
+  sel.innerHTML = "";
+  sel.add(new Option("Select…", ""));
+  values.forEach((v) => sel.add(new Option(v, v)));
+  sel.add(new Option("Other (type it)", OTHER));
+  if (!values.length) sel.value = OTHER;
+  other.hidden = sel.value !== OTHER;
+}
+
+function getValue(sel, other) {
+  return sel.value === OTHER ? other.value.trim() : sel.value;
+}
+
+function setValue(sel, other, value, options) {
+  if (value && options.includes(value)) {
+    sel.value = value; other.hidden = true; other.value = "";
+  } else if (value) {
+    sel.value = OTHER; other.hidden = false; other.value = value;
+  } else {
+    sel.value = ""; other.hidden = true; other.value = "";
+  }
+}
+
+function statesForZone() {
+  const z = getValue($("zone"), $("zoneOther"));
+  return geo[z] || allStates;
+}
+
+function rebuildStates() {
+  const prevSel = $("state").value;
+  const prevText = $("stateOther").value;
+  const list = statesForZone();
+  fillSelect($("state"), $("stateOther"), list);
+  if (prevSel === OTHER) {
+    $("state").value = OTHER; $("stateOther").hidden = false; $("stateOther").value = prevText;
+  } else if (prevSel && list.includes(prevSel)) {
+    $("state").value = prevSel;
+  }
+}
+
+$("zone").addEventListener("change", () => {
+  $("zoneOther").hidden = $("zone").value !== OTHER;
+  rebuildStates();
+});
+$("state").addEventListener("change", () => {
+  $("stateOther").hidden = $("state").value !== OTHER;
+});
+
+/* ---------- Name lookup ---------- */
+
+$("name").addEventListener("input", () => {
+  matched = null;
+  $("asmInfo").hidden = true;
+  clearTimeout(timer);
+  const v = $("name").value.trim();
+  if (v.length < 2) { $("sug").hidden = true; return; }
+  timer = setTimeout(() => search(v), 350);
+});
+
+document.addEventListener("click", (e) => {
+  if (!e.target.closest(".field-wrap")) $("sug").hidden = true;
+});
+
+async function search(v) {
+  try {
+    const r = await apiGet({ action: "search", q: v });
+    if ($("name").value.trim() !== v) return;
+    renderSuggestions(r.results || []);
+  } catch (e) {
+    $("sug").hidden = true;
+  }
+}
+
+function renderSuggestions(list) {
+  const ul = $("sug");
+  ul.innerHTML = "";
+  if (!list.length) { ul.hidden = true; return; }
+  list.forEach((item) => {
+    const li = document.createElement("li");
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = item.name;
+    const small = document.createElement("small");
+    small.textContent = [item.id, item.cluster, item.state].filter(Boolean).join(", ");
+    b.appendChild(small);
+    b.addEventListener("click", () => pick(item));
+    li.appendChild(b);
+    ul.appendChild(li);
+  });
+  ul.hidden = false;
+}
+
+function pick(item) {
+  matched = item;
+  $("name").value = item.name;
+  $("sug").hidden = true;
+  $("asmInfo").textContent = "ASM ID " + item.id;
+  $("asmInfo").hidden = false;
+  $("cluster").value = item.cluster || "";
+  setValue($("zone"), $("zoneOther"), item.zone, Object.keys(geo));
+  rebuildStates();
+  setValue($("state"), $("stateOther"), item.state, statesForZone());
+}
+
+/* ---------- Submit ---------- */
+
+function cleanMobile(raw) {
+  let d = String(raw).replace(/\D/g, "");
+  if (d.length > 10) d = d.slice(-10);
+  return d;
+}
+
+$("submit").addEventListener("click", async () => {
+  showError("");
+  const name = $("name").value.trim();
+  const mobile = cleanMobile($("mobile").value);
+  const zone = getValue($("zone"), $("zoneOther"));
+  const state = getValue($("state"), $("stateOther"));
+  if (name.length < 2) return showError("Enter your name.");
+  if (mobile.length !== 10) return showError("Enter a valid 10-digit mobile number.");
+  if (!zone) return showError("Select your zone, or choose Other and type it.");
+  if (!state) return showError("Select your state, or choose Other and type it.");
+
+  const btn = $("submit");
+  btn.disabled = true;
+  btn.textContent = "Submitting…";
+  try {
+    const res = await apiPost({
+      action: "submit",
+      sessionId: session.id,
+      date: session.date,
+      trainer: session.trainer,
+      topic: session.topic,
+      name: name,
+      asmId: matched ? matched.id : "",
+      mobile: mobile,
+      zone: zone,
+      state: state,
+      cluster: $("cluster").value.trim()
+    });
+    if (res.ok) {
+      finish("Attendance marked for " + name + ".");
+    } else if (res.duplicate) {
+      finish(name + " is already marked present for this session. No need to scan again.");
+    } else {
+      showError(res.error || "Could not submit. Please try again.");
+    }
+  } catch (e) {
+    showError("Could not submit. Check your internet connection and tap Mark attendance again.");
+  }
+  btn.disabled = false;
+  btn.textContent = "Mark attendance";
+});
+
+function finish(text) {
+  $("doneMsg").textContent = text;
+  $("formCard").hidden = true;
+  $("done").hidden = false;
+}
+
+$("another").addEventListener("click", () => {
+  matched = null;
+  ["name", "mobile", "cluster", "zoneOther", "stateOther"].forEach((id) => { $(id).value = ""; });
+  $("asmInfo").hidden = true;
+  fillSelect($("zone"), $("zoneOther"), Object.keys(geo));
+  fillSelect($("state"), $("stateOther"), allStates);
+  showError("");
+  $("done").hidden = true;
+  $("formCard").hidden = false;
+  $("name").focus();
+});
+
+/* ---------- Start ---------- */
+
+async function init() {
+  if (!session.id || !session.trainer || !session.topic || !session.date) {
+    $("bad").hidden = false;
+    return;
+  }
+  $("sTopic").textContent = session.topic;
+  $("sMeta").textContent = session.trainer + ", " + formatDate(session.date);
+  $("sessionBox").hidden = false;
+  $("formCard").hidden = false;
+
+  fillSelect($("zone"), $("zoneOther"), []);
+  fillSelect($("state"), $("stateOther"), []);
+
+  if (!scriptReady()) {
+    showError("Setup incomplete: add your Apps Script URL in config.js.");
+    $("submit").disabled = true;
+    return;
+  }
+  try {
+    const cfg = await apiGet({ action: "config" });
+    geo = cfg.geo || {};
+    allStates = cfg.allStates || [];
+    fillSelect($("zone"), $("zoneOther"), Object.keys(geo).sort());
+    fillSelect($("state"), $("stateOther"), allStates);
+  } catch (e) {
+    /* dropdowns stay in manual-entry mode */
+  }
+}
+
+init();
+</script>
+</body>
+</html>

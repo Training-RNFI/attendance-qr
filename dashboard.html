@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Attendance dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<style>
+  .filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; align-items: end; }
+  .filters label { margin-top: 0; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-top: 16px; }
+  .kpi { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+  .kpi b { display: block; font-size: 1.9rem; line-height: 1.1; letter-spacing: -0.02em; }
+  .kpi span { color: var(--muted); font-size: 0.9rem; }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+  .grid2 h2 { margin-top: 0; }
+  .bar { display: grid; grid-template-columns: minmax(80px, 38%) 1fr auto; gap: 10px; align-items: center; margin: 7px 0; font-size: 0.92rem; }
+  .bar .k { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar .track { background: var(--accent-tint); border-radius: 4px; height: 12px; }
+  .bar .track i { display: block; height: 100%; background: var(--accent); border-radius: 4px; }
+  .bar b { min-width: 28px; text-align: right; }
+  .empty { color: var(--muted); font-size: 0.92rem; }
+  .tablewrap { overflow-x: auto; background: #fff; border: 1px solid var(--line); border-radius: 10px; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { background: var(--paper); font-weight: 600; }
+  tr:last-child td { border-bottom: 0; }
+  td.num, th.num { text-align: right; }
+  details.card summary { cursor: pointer; font-weight: 600; }
+  .row { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 12px; }
+  .row label { display: flex; gap: 8px; align-items: center; font-weight: 400; margin: 0; }
+  .topbar { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+
+<div class="wrap" id="gate">
+  <h1>Attendance dashboard</h1>
+  <p class="sub">Enter the admin PIN to continue.</p>
+  <div class="card">
+    <label for="pin">Admin PIN</label>
+    <input id="pin" type="password" autocomplete="current-password">
+    <button id="unlock" class="block" type="button">Open dashboard</button>
+    <div id="gateMsg" class="msg err" hidden></div>
+  </div>
+</div>
+
+<div class="wrap wide" id="app" hidden>
+  <div class="topbar">
+    <div>
+      <h1>Attendance dashboard</h1>
+      <p class="sub" id="loaded"></p>
+    </div>
+    <div>
+      <button id="refresh" class="ghost" type="button">Refresh</button>
+      <button id="csv" class="ghost" type="button">Download CSV</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="filters">
+      <div><label for="fFrom">From</label><input id="fFrom" type="date"></div>
+      <div><label for="fTo">To</label><input id="fTo" type="date"></div>
+      <div><label for="fTrainer">Trainer</label><select id="fTrainer"></select></div>
+      <div><label for="fTopic">Topic</label><select id="fTopic"></select></div>
+    </div>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><b id="kAtt">0</b><span>Attendances</span></div>
+    <div class="kpi"><b id="kPeople">0</b><span>Unique participants</span></div>
+    <div class="kpi"><b id="kSessions">0</b><span>Sessions</span></div>
+    <div class="kpi"><b id="kOff">0</b><span>Not in roster</span></div>
+  </div>
+
+  <h2>Breakdown</h2>
+  <div class="grid2">
+    <div class="card"><h2>By trainer</h2><div id="bTrainer"></div></div>
+    <div class="card"><h2>By topic</h2><div id="bTopic"></div></div>
+    <div class="card"><h2>By zone</h2><div id="bZone"></div></div>
+    <div class="card"><h2>By state</h2><div id="bState"></div></div>
+  </div>
+
+  <h2>Sessions</h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Date</th><th>Trainer</th><th>Topic</th><th class="num">Attendees</th></tr></thead>
+      <tbody id="tSessions"></tbody>
+    </table>
+  </div>
+
+  <h2>Latest attendance records</h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Time</th><th>Name</th><th>ASM ID</th><th>Mobile</th><th>Zone</th><th>State</th><th>Topic</th><th>Trainer</th></tr></thead>
+      <tbody id="tRecords"></tbody>
+    </table>
+  </div>
+  <p class="hint" id="recNote"></p>
+
+  <h2>ASM roster</h2>
+  <details class="card">
+    <summary>Upload or update the roster</summary>
+    <p class="hint">Upload a CSV or Excel file with these columns: ASM ID, ASM Name, Cluster, State, Zone.</p>
+    <label for="file">Roster file</label>
+    <input id="file" type="file" accept=".csv,.xlsx,.xls">
+    <div class="row">
+      <label><input type="radio" name="mode" value="replace" checked> Replace the whole roster</label>
+      <label><input type="radio" name="mode" value="add"> Add new and update existing</label>
+    </div>
+    <div id="rPreview" class="hint" style="margin-top:12px"></div>
+    <button id="rUpload" class="block" type="button" disabled>Upload roster</button>
+    <div id="rMsg" class="msg" hidden></div>
+  </details>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="config.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+let PIN = "";
+let ROWS = [];
+let rosterRows = [];
+
+/* ---------- Unlock ---------- */
+
+function remember(pin) { try { sessionStorage.setItem("att_pin", pin); } catch (e) {} }
+function recall() { try { return sessionStorage.getItem("att_pin") || ""; } catch (e) { return ""; } }
+
+async function unlock(pin) {
+  $("gateMsg").hidden = true;
+  if (!scriptReady()) {
+    $("gateMsg").textContent = "Setup incomplete: add your Apps Script URL in config.js.";
+    $("gateMsg").hidden = false;
+    return;
+  }
+  try {
+    const res = await apiPost({ action: "data", pin: pin });
+    if (res.error) throw new Error(res.error);
+    PIN = pin;
+    remember(pin);
+    ROWS = res.rows || [];
+    $("gate").hidden = true;
+    $("app").hidden = false;
+    buildFilters();
+    render();
+  } catch (e) {
+    $("gateMsg").textContent = e.message === "Wrong PIN" ? "That PIN is not correct." : "Could not load data. " + e.message;
+    $("gateMsg").hidden = false;
+  }
+}
+
+$("unlock").addEventListener("click", () => unlock($("pin").value.trim()));
+$("pin").addEventListener("keydown", (e) => { if (e.key === "Enter") unlock($("pin").value.trim()); });
+
+$("refresh").addEventListener("click", async () => {
+  $("refresh").disabled = true;
+  try {
+    const res = await apiPost({ action: "data", pin: PIN });
+    if (res.error) throw new Error(res.error);
+    ROWS = res.rows || [];
+    buildFilters();
+    render();
+  } catch (e) {
+    alert("Could not refresh: " + e.message);
+  }
+  $("refresh").disabled = false;
+});
+
+/* ---------- Filters and numbers ---------- */
+
+function unique(key) {
+  return Array.from(new Set(ROWS.map((r) => r[key]).filter(Boolean))).sort();
+}
+
+function buildFilters() {
+  const keepT = $("fTrainer").value, keepP = $("fTopic").value;
+  [["fTrainer", "trainer", "All trainers", keepT], ["fTopic", "topic", "All topics", keepP]].forEach(([id, key, label, keep]) => {
+    const sel = $(id);
+    sel.innerHTML = "";
+    sel.add(new Option(label, ""));
+    unique(key).forEach((v) => sel.add(new Option(v, v)));
+    sel.value = keep;
+  });
+}
+
+function filtered() {
+  const from = $("fFrom").value, to = $("fTo").value;
+  const t = $("fTrainer").value, p = $("fTopic").value;
+  return ROWS.filter((r) =>
+    (!from || r.date >= from) && (!to || r.date <= to) &&
+    (!t || r.trainer === t) && (!p || r.topic === p));
+}
+
+["fFrom", "fTo", "fTrainer", "fTopic"].forEach((id) => $(id).addEventListener("change", render));
+
+function countBy(rows, key) {
+  const m = new Map();
+  rows.forEach((r) => { const k = r[key] || "(blank)"; m.set(k, (m.get(k) || 0) + 1); });
+  return Array.from(m.entries()).sort((a, b) => b[1] - a[1]);
+}
+
+function renderBars(el, entries) {
+  el.innerHTML = "";
+  if (!entries.length) { el.innerHTML = '<div class="empty">No data for this filter.</div>'; return; }
+  const max = entries[0][1];
+  entries.slice(0, 10).forEach(([k, n]) => {
+    const row = document.createElement("div"); row.className = "bar";
+    const kk = document.createElement("span"); kk.className = "k"; kk.textContent = k; kk.title = k;
+    const track = document.createElement("span"); track.className = "track";
+    const fill = document.createElement("i"); fill.style.width = Math.max(4, (n / max) * 100) + "%";
+    track.appendChild(fill);
+    const b = document.createElement("b"); b.textContent = n;
+    row.append(kk, track, b);
+    el.appendChild(row);
+  });
+  if (entries.length > 10) {
+    const more = document.createElement("div"); more.className = "hint";
+    more.textContent = "Showing top 10 of " + entries.length + ".";
+    el.appendChild(more);
+  }
+}
+
+function cell(text, cls) {
+  const td = document.createElement("td");
+  td.textContent = text == null ? "" : text;
+  if (cls) td.className = cls;
+  return td;
+}
+
+function render() {
+  const rows = filtered();
+  $("loaded").textContent = ROWS.length + " records in total";
+
+  const people = new Set(rows.map((r) => r.asmId || r.mobile));
+  const sessions = new Set(rows.map((r) => r.sessionId));
+  $("kAtt").textContent = rows.length;
+  $("kPeople").textContent = people.size;
+  $("kSessions").textContent = sessions.size;
+  $("kOff").textContent = rows.filter((r) => r.inRoster !== "Yes").length;
+
+  renderBars($("bTrainer"), countBy(rows, "trainer"));
+  renderBars($("bTopic"), countBy(rows, "topic"));
+  renderBars($("bZone"), countBy(rows, "zone"));
+  renderBars($("bState"), countBy(rows, "state"));
+
+  // Sessions table
+  const sm = new Map();
+  rows.forEach((r) => {
+    if (!sm.has(r.sessionId)) sm.set(r.sessionId, { date: r.date, trainer: r.trainer, topic: r.topic, n: 0 });
+    sm.get(r.sessionId).n++;
+  });
+  const sBody = $("tSessions"); sBody.innerHTML = "";
+  Array.from(sm.values()).sort((a, b) => (a.date < b.date ? 1 : -1)).forEach((s) => {
+    const tr = document.createElement("tr");
+    tr.append(cell(s.date), cell(s.trainer), cell(s.topic), cell(s.n, "num"));
+    sBody.appendChild(tr);
+  });
+  if (!sm.size) { const tr = document.createElement("tr"); tr.append(cell("No sessions for this filter.")); sBody.appendChild(tr); }
+
+  // Records table (latest 100)
+  const latest = rows.slice().reverse().slice(0, 100);
+  const rBody = $("tRecords"); rBody.innerHTML = "";
+  latest.forEach((r) => {
+    const tr = document.createElement("tr");
+    tr.append(cell(r.ts), cell(r.name), cell(r.asmId), cell(r.mobile), cell(r.zone), cell(r.state), cell(r.topic), cell(r.trainer));
+    rBody.appendChild(tr);
+  });
+  $("recNote").textContent = rows.length > 100 ? "Showing the latest 100 of " + rows.length + ". Download the CSV for everything." : "";
+}
+
+/* ---------- CSV download ---------- */
+
+$("csv").addEventListener("click", () => {
+  const rows = filtered();
+  const head = ["Timestamp", "Session ID", "Date", "Trainer", "Topic", "Name", "ASM ID", "Mobile", "Zone", "State", "Cluster", "In Roster"];
+  const keys = ["ts", "sessionId", "date", "trainer", "topic", "name", "asmId", "mobile", "zone", "state", "cluster", "inRoster"];
+  const esc = (v) => '"' + String(v == null ? "" : v).replace(/"/g, '""') + '"';
+  const lines = [head.map(esc).join(",")].concat(rows.map((r) => keys.map((k) => esc(r[k])).join(",")));
+  const blob = new Blob(["\ufeff" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "attendance.csv";
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+/* ---------- Roster upload ---------- */
+
+function norm(s) { return String(s).toLowerCase().replace(/[^a-z0-9]/g, ""); }
+
+function pickField(row, names) {
+  for (const k of Object.keys(row)) {
+    if (names.includes(norm(k))) return String(row[k]).trim();
+  }
+  return "";
+}
+
+$("file").addEventListener("change", async (e) => {
+  rosterRows = [];
+  $("rUpload").disabled = true;
+  $("rMsg").hidden = true;
+  const f = e.target.files[0];
+  if (!f) { $("rPreview").textContent = ""; return; }
+  try {
+    const wb = XLSX.read(await f.arrayBuffer(), { type: "array" });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const objs = XLSX.utils.sheet_to_json(ws, { defval: "" });
+    const out = [];
+    objs.forEach((o) => {
+      const id = pickField(o, ["asmid", "id", "employeeid", "empid"]);
+      const name = pickField(o, ["asmname", "name", "employeename"]);
+      if (!id || !name) return;
+      out.push([id, name, pickField(o, ["cluster"]), pickField(o, ["state"]), pickField(o, ["zone"])]);
+    });
+    rosterRows = out;
+    if (!out.length) {
+      $("rPreview").textContent = "No usable rows found. Check that the file has ASM ID and ASM Name columns.";
+      return;
+    }
+    $("rPreview").textContent = out.length + " ASMs found in " + f.name + ". First: " + out[0][1] + " (" + out[0][0] + ").";
+    $("rUpload").disabled = false;
+  } catch (err) {
+    $("rPreview").textContent = "Could not read this file. Save it as .xlsx or .csv and try again.";
+  }
+});
+
+$("rUpload").addEventListener("click", async () => {
+  const mode = document.querySelector('input[name="mode"]:checked').value;
+  const btn = $("rUpload");
+  btn.disabled = true; btn.textContent = "Uploading…";
+  const m = $("rMsg");
+  try {
+    const res = await apiPost({ action: "roster", pin: PIN, mode: mode, rows: rosterRows });
+    if (res.error) throw new Error(res.error);
+    m.className = "msg ok";
+    m.textContent = "Roster updated. " + res.total + " ASMs are now in the roster.";
+  } catch (err) {
+    m.className = "msg err";
+    m.textContent = "Upload failed: " + err.message;
+  }
+  m.hidden = false;
+  btn.textContent = "Upload roster";
+  btn.disabled = false;
+});
+
+/* ---------- Start ---------- */
+
+const saved = recall();
+if (saved) unlock(saved);
+</script>
+</body>
+</html>
