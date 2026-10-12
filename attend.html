@@ -6,8 +6,12 @@
 <title>Mark attendance</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;600;700&family=Noto+Sans+Devanagari:wght@400;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
+<style>
+  .hi { font-family: "Noto Sans Devanagari", "Public Sans", system-ui, sans-serif; }
+  .hint .hi { display: block; margin-top: 2px; }
+</style>
 </head>
 <body>
 <div class="wrap">
@@ -21,12 +25,19 @@
   <div id="bad" class="msg err" hidden></div>
 
   <div class="card" id="formCard" style="margin-top:16px" hidden>
-    <label for="name">Your name</label>
+    <label for="name">Your full name <span class="hi">/ आपका पूरा नाम</span></label>
+    <div class="hint" style="margin:-2px 0 8px">
+      Type your first name, then press the space bar. Your full name and details will appear. Tap your name to select it.
+      <span class="hi">अपना पहला नाम लिखें, फिर स्पेस दबाएँ। आपका पूरा नाम और जानकारी दिखेगी। अपने नाम पर टैप करें।</span>
+    </div>
     <div class="field-wrap">
-      <input id="name" type="text" autocomplete="off" maxlength="100" placeholder="Start typing your name">
+      <input id="name" type="text" autocomplete="off" maxlength="100" placeholder="First name + space / पहला नाम + स्पेस">
       <ul class="suggest" id="sug" hidden></ul>
     </div>
-    <div class="hint">If your name does not appear, type it in full and fill in your details below.</div>
+    <div class="hint">
+      Cannot find your name? Type your full name and fill in your details below.
+      <span class="hi">नाम नहीं मिल रहा? अपना पूरा नाम लिखें और नीचे अपनी जानकारी भरें।</span>
+    </div>
 
     <div class="detail-card" id="details" hidden>
       <dl>
@@ -61,7 +72,6 @@
 
   <div class="card" id="done" hidden style="margin-top:16px">
     <div class="msg ok" id="doneMsg" style="margin-top:0"></div>
-    <button id="another" class="block ghost" type="button">Mark another person</button>
   </div>
 </div>
 
@@ -190,9 +200,11 @@ function setManual(on) {
 $("name").addEventListener("input", () => {
   if (matched) { matched = null; setManual(true); }
   clearTimeout(timer);
-  const v = $("name").value.trim();
+  const raw = $("name").value;
+  const v = raw.trim();
   if (v.length < 2) { $("sug").hidden = true; return; }
-  timer = setTimeout(() => search(v), 350);
+  // A space after the first name searches straight away; otherwise wait for a short pause in typing.
+  timer = setTimeout(() => search(v), /\s$/.test(raw) ? 0 : 350);
 });
 
 document.addEventListener("click", (e) => {
@@ -309,18 +321,6 @@ function finish(text) {
   $("formCard").hidden = true;
   $("done").hidden = false;
 }
-
-$("another").addEventListener("click", () => {
-  matched = null;
-  ["name", "mobile", "zoneOther", "stateOther", "clusterOther"].forEach((id) => { $(id).value = ""; });
-  resetDropdowns();
-  setManual(true);
-  showError("");
-  $("done").hidden = true;
-  $("formCard").hidden = false;
-  $("name").focus();
-});
-
 /* ---------- Start ---------- */
 
 async function init() {
