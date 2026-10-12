@@ -7,13 +7,27 @@ function scriptReady() {
   return CONFIG.SCRIPT_URL && CONFIG.SCRIPT_URL.indexOf("PASTE_") === -1;
 }
 
-async function apiGet(params) {
-  const res = await fetch(CONFIG.SCRIPT_URL + "?" + new URLSearchParams(params));
-  return res.json();
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// Every call goes out as a POST (sent as plain text so no CORS preflight is needed).
+// A failed attempt is retried up to 3 times before giving up.
 async function apiPost(body) {
-  // Sent as plain text so the browser does not need a CORS preflight
-  const res = await fetch(CONFIG.SCRIPT_URL, { method: "POST", body: JSON.stringify(body) });
-  return res.json();
+  let lastError;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetch(CONFIG.SCRIPT_URL, { method: "POST", body: JSON.stringify(body) });
+      return await res.json();
+    } catch (e) {
+      lastError = e;
+      await sleep(700 * (attempt + 1));
+    }
+  }
+  throw lastError;
+}
+
+// Lookups (config, search, session) use the same POST route.
+function apiGet(params) {
+  return apiPost(params);
 }
