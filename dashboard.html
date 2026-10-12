@@ -29,20 +29,28 @@
   th { background: var(--paper); font-weight: 600; }
   tr:last-child td { border-bottom: 0; }
   td.num, th.num { text-align: right; }
+  tr.click { cursor: pointer; }
+  tr.click:hover td { background: var(--accent-tint); }
   details.card summary { cursor: pointer; font-weight: 600; }
   .row { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 12px; }
   .row label { display: flex; gap: 8px; align-items: center; font-weight: 400; margin: 0; }
   .topbar { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+  .topbar .btns { display: flex; gap: 8px; flex-wrap: wrap; }
   .divider { border: 0; border-top: 1px solid var(--line); margin: 20px 0; }
+  .live { display: inline-flex; align-items: center; gap: 8px; }
+  .live::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: #1a9b6c; flex: none; }
+  .live.off::before { background: #c0792b; }
 </style>
 </head>
 <body>
 
 <div class="wrap" id="gate">
   <h1>Attendance dashboard</h1>
-  <p class="sub">Enter the admin PIN to continue.</p>
+  <p class="sub">Sign in to see your sessions and attendance.</p>
   <div class="card">
-    <label for="pin">Admin PIN</label>
+    <label for="who">Sign in as</label>
+    <select id="who"><option value="">Loading…</option></select>
+    <label for="pin">PIN</label>
     <input id="pin" type="password" autocomplete="current-password">
     <button id="unlock" class="block" type="button">Open dashboard</button>
     <div id="gateMsg" class="msg err" hidden></div>
@@ -52,12 +60,13 @@
 <div class="wrap wide" id="app" hidden>
   <div class="topbar">
     <div>
-      <h1>Attendance dashboard</h1>
-      <p class="sub" id="loaded"></p>
+      <h1 id="title">Attendance dashboard</h1>
+      <p class="sub live" id="loaded"></p>
     </div>
-    <div>
+    <div class="btns">
       <button id="refresh" class="ghost" type="button">Refresh</button>
       <button id="csv" class="ghost" type="button">Download CSV</button>
+      <button id="signout" class="ghost" type="button">Sign out</button>
     </div>
   </div>
 
@@ -65,7 +74,8 @@
     <div class="filters">
       <div><label for="fFrom">From</label><input id="fFrom" type="date"></div>
       <div><label for="fTo">To</label><input id="fTo" type="date"></div>
-      <div><label for="fTrainer">Trainer</label><select id="fTrainer"></select></div>
+      <div class="admin-only"><label for="fTrainer">Trainer</label><select id="fTrainer"></select></div>
+      <div><label for="fSession">Session</label><select id="fSession"></select></div>
       <div><label for="fTopic">Topic</label><select id="fTopic"></select></div>
     </div>
   </div>
@@ -79,135 +89,235 @@
 
   <h2>Breakdown</h2>
   <div class="grid2">
-    <div class="card"><h2>By trainer</h2><div id="bTrainer"></div></div>
+    <div class="card admin-only"><h2>By trainer</h2><div id="bTrainer"></div></div>
     <div class="card"><h2>By topic</h2><div id="bTopic"></div><p class="hint">A session with several topics counts once under each topic.</p></div>
     <div class="card"><h2>By zone</h2><div id="bZone"></div></div>
     <div class="card"><h2>By state</h2><div id="bState"></div></div>
   </div>
 
   <h2>Sessions</h2>
-  <div class="tablewrap">
-    <table>
-      <thead><tr><th>Date</th><th>Trainer</th><th>Topics</th><th>Batch</th><th class="num">Attendees</th></tr></thead>
-      <tbody id="tSessions"></tbody>
-    </table>
-  </div>
+  <p class="hint" style="margin-top:-4px">Tap a session to see only its participants.</p>
+  <div class="tablewrap"><table id="tSessions"><thead></thead><tbody></tbody></table></div>
 
-  <h2>Latest attendance records</h2>
-  <div class="tablewrap">
-    <table>
-      <thead><tr><th>Time</th><th>Name</th><th>ASM ID</th><th>Mobile</th><th>Zone</th><th>State</th><th>Topics</th><th>Trainer</th></tr></thead>
-      <tbody id="tRecords"></tbody>
-    </table>
-  </div>
+  <h2 id="pTitle">Participants</h2>
+  <div class="tablewrap"><table id="tParticipants"><thead></thead><tbody></tbody></table></div>
   <p class="hint" id="recNote"></p>
 
-  <h2>ASM roster</h2>
-  <details class="card">
-    <summary>Update the roster</summary>
+  <div class="admin-only">
+    <h2>ASM roster</h2>
+    <details class="card">
+      <summary>Update the roster</summary>
 
-    <p class="hint" style="margin-top:12px">
-      <b>Sync from your ASM list:</b> copies the list into the Roster tab. Set the source link in the Config tab (cell F2),
-      or a tab name from the same Sheet (cell G2).
-    </p>
-    <button id="rSync" type="button" class="ghost">Sync now</button>
+      <p class="hint" style="margin-top:12px">
+        <b>Sync from your ASM list:</b> copies the list into the Roster tab. Set the source link in the Config tab (cell F2),
+        or a tab name from the same Sheet (cell G2).
+      </p>
+      <button id="rSync" type="button" class="ghost">Sync now</button>
 
-    <hr class="divider">
+      <hr class="divider">
 
-    <p class="hint"><b>Or upload a file</b> (CSV or Excel) with the columns ASM ID, ASM Name, Cluster, State, Zone.</p>
-    <label for="file">Roster file</label>
-    <input id="file" type="file" accept=".csv,.xlsx,.xls">
-    <div class="row">
-      <label><input type="radio" name="mode" value="replace" checked> Replace the whole roster</label>
-      <label><input type="radio" name="mode" value="add"> Add new and update existing</label>
-    </div>
-    <div id="rPreview" class="hint" style="margin-top:12px"></div>
-    <button id="rUpload" class="block" type="button" disabled>Upload roster</button>
-    <div id="rMsg" class="msg" hidden></div>
-  </details>
+      <p class="hint"><b>Or upload a file</b> (CSV or Excel) with the columns ASM ID, ASM Name, Cluster, State, Zone.</p>
+      <label for="file">Roster file</label>
+      <input id="file" type="file" accept=".csv,.xlsx,.xls">
+      <div class="row">
+        <label><input type="radio" name="mode" value="replace" checked> Replace the whole roster</label>
+        <label><input type="radio" name="mode" value="add"> Add new and update existing</label>
+      </div>
+      <div id="rPreview" class="hint" style="margin-top:12px"></div>
+      <button id="rUpload" class="block" type="button" disabled>Upload roster</button>
+      <div id="rMsg" class="msg" hidden></div>
+    </details>
+  </div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="config.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
-let PIN = "";
+const ADMIN = "__admin__";
+const REFRESH_MS = 30000;
+
+let AUTH = null;      // { role: "admin" | "trainer", trainer, pin }
 let ROWS = [];
 let rosterRows = [];
+let refreshing = false;
+
+function isAdmin() { return AUTH && AUTH.role === "admin"; }
 
 function topicsOf(r) {
   return String(r.topics || "").split(" | ").map((s) => s.trim()).filter(Boolean);
 }
 
-/* ---------- Unlock ---------- */
+function fmtDate(iso) {
+  const d = new Date(iso + "T00:00:00");
+  return isNaN(d) ? iso : d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+}
 
-function remember(pin) { try { sessionStorage.setItem("att_pin", pin); } catch (e) {} }
-function recall() { try { return sessionStorage.getItem("att_pin") || ""; } catch (e) { return ""; } }
+/* ---------- Sign in ---------- */
 
-async function unlock(pin) {
-  $("gateMsg").hidden = true;
-  if (!scriptReady()) {
-    $("gateMsg").textContent = "Setup incomplete: add your Apps Script URL in config.js.";
-    $("gateMsg").hidden = false;
-    return;
+function remember(a) { try { sessionStorage.setItem("att_auth", JSON.stringify(a)); } catch (e) {} }
+function forget() { try { sessionStorage.removeItem("att_auth"); } catch (e) {} }
+function recall() {
+  try { return JSON.parse(sessionStorage.getItem("att_auth") || "null"); } catch (e) { return null; }
+}
+
+async function loadWho() {
+  const sel = $("who");
+  sel.innerHTML = "";
+  sel.add(new Option("Select your name", ""));
+  if (scriptReady()) {
+    try {
+      const cfg = await apiGet({ action: "config" });
+      (cfg.trainers || []).forEach((t) => sel.add(new Option(t, t)));
+    } catch (e) { /* admin sign-in still works */ }
   }
+  sel.add(new Option("Admin (all trainers)", ADMIN));
+}
+
+function fetchData() {
+  const body = isAdmin()
+    ? { action: "data", pin: AUTH.pin }
+    : { action: "data", trainer: AUTH.trainer, pin: AUTH.pin };
+  return apiPost(body);
+}
+
+function gateError(text) {
+  $("gateMsg").textContent = text;
+  $("gateMsg").hidden = !text;
+}
+
+async function signIn(auth, silent) {
+  gateError("");
+  if (!scriptReady()) { gateError("Setup incomplete: add your Apps Script URL in config.js."); return; }
+  AUTH = auth;
   try {
-    const res = await apiPost({ action: "data", pin: pin });
+    const res = await fetchData();
     if (res.error) throw new Error(res.error);
-    PIN = pin;
-    remember(pin);
     ROWS = res.rows || [];
-    $("gate").hidden = true;
-    $("app").hidden = false;
-    buildFilters();
-    render();
+    remember(auth);
+    startApp();
   } catch (e) {
-    $("gateMsg").textContent = e.message === "Wrong PIN" ? "That PIN is not correct." : "Could not load data. " + e.message;
-    $("gateMsg").hidden = false;
+    AUTH = null;
+    forget();
+    if (silent) return;
+    gateError(e.message === "Wrong PIN" ? "That PIN is not correct." : "Could not sign in. " + e.message);
   }
 }
 
-$("unlock").addEventListener("click", () => unlock($("pin").value.trim()));
-$("pin").addEventListener("keydown", (e) => { if (e.key === "Enter") unlock($("pin").value.trim()); });
+$("unlock").addEventListener("click", () => {
+  const who = $("who").value;
+  const pin = $("pin").value.trim();
+  if (!who) return gateError("Select your name, or Admin.");
+  if (!pin) return gateError("Enter your PIN.");
+  signIn(who === ADMIN ? { role: "admin", pin } : { role: "trainer", trainer: who, pin }, false);
+});
+$("pin").addEventListener("keydown", (e) => { if (e.key === "Enter") $("unlock").click(); });
 
-$("refresh").addEventListener("click", async () => {
-  $("refresh").disabled = true;
+function signOut() {
+  forget();
+  location.reload();
+}
+$("signout").addEventListener("click", signOut);
+
+/* ---------- Start the dashboard ---------- */
+
+function startApp() {
+  $("gate").hidden = true;
+  $("app").hidden = false;
+  document.querySelectorAll(".admin-only").forEach((el) => { el.hidden = !isAdmin(); });
+  $("title").textContent = isAdmin() ? "Attendance dashboard" : AUTH.trainer;
+  document.title = isAdmin() ? "Attendance dashboard" : AUTH.trainer + " | Attendance";
+  buildFilters();
+  // A trainer lands on their most recent session, which is what they usually want during a class.
+  if (!isAdmin() && ROWS.length) $("fSession").value = ROWS[ROWS.length - 1].sessionId;
+  render();
+  setUpdated(true);
+}
+
+/* ---------- Live refresh ---------- */
+
+function setUpdated(ok) {
+  const el = $("loaded");
+  el.className = "sub live" + (ok === false ? " off" : "");
+  el.textContent = ok === false
+    ? "Offline, retrying…"
+    : "Live, updated " + new Date().toLocaleTimeString("en-IN") + ". " + ROWS.length + " records.";
+}
+
+async function refresh(silent) {
+  if (!AUTH || refreshing) return;
+  refreshing = true;
   try {
-    const res = await apiPost({ action: "data", pin: PIN });
+    const res = await fetchData();
     if (res.error) throw new Error(res.error);
     ROWS = res.rows || [];
     buildFilters();
     render();
+    setUpdated(true);
   } catch (e) {
-    alert("Could not refresh: " + e.message);
+    if (/PIN/.test(e.message)) { signOut(); return; }
+    if (silent) setUpdated(false);
+    else alert("Could not refresh: " + e.message);
   }
+  refreshing = false;
+}
+
+$("refresh").addEventListener("click", async () => {
+  $("refresh").disabled = true;
+  await refresh(false);
   $("refresh").disabled = false;
 });
 
-/* ---------- Filters and numbers ---------- */
+setInterval(() => { if (!document.hidden) refresh(true); }, REFRESH_MS);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(true); });
+
+/* ---------- Filters ---------- */
+
+function fillSelect(sel, items, firstLabel, keep) {
+  sel.innerHTML = "";
+  sel.add(new Option(firstLabel, ""));
+  items.forEach(([value, label]) => sel.add(new Option(label, value)));
+  sel.value = items.some(([v]) => v === keep) ? keep : "";
+}
 
 function buildFilters() {
-  const keepT = $("fTrainer").value, keepP = $("fTopic").value;
+  const keepT = $("fTrainer").value, keepP = $("fTopic").value, keepS = $("fSession").value;
+
   const trainers = Array.from(new Set(ROWS.map((r) => r.trainer).filter(Boolean))).sort();
+  fillSelect($("fTrainer"), trainers.map((t) => [t, t]), "All trainers", keepT);
+
   const topics = Array.from(new Set([].concat(...ROWS.map(topicsOf)))).sort();
-  [["fTrainer", trainers, "All trainers", keepT], ["fTopic", topics, "All topics", keepP]].forEach(([id, list, label, keep]) => {
-    const sel = $(id);
-    sel.innerHTML = "";
-    sel.add(new Option(label, ""));
-    list.forEach((v) => sel.add(new Option(v, v)));
-    sel.value = keep;
+  fillSelect($("fTopic"), topics.map((t) => [t, t]), "All topics", keepP);
+
+  // Sessions, newest first, limited to the chosen trainer (admin only)
+  const t = $("fTrainer").value;
+  const map = new Map();
+  ROWS.forEach((r, i) => {
+    if (t && r.trainer !== t) return;
+    if (!map.has(r.sessionId)) map.set(r.sessionId, { id: r.sessionId, date: r.date, trainer: r.trainer, topics: topicsOf(r).join(", "), batch: r.batch, n: 0, last: 0 });
+    const s = map.get(r.sessionId);
+    s.n++; s.last = i;
   });
+  const sessions = Array.from(map.values()).sort((a, b) => (a.date === b.date ? b.last - a.last : (a.date < b.date ? 1 : -1)));
+  fillSelect($("fSession"), sessions.map((s) => [
+    s.id,
+    fmtDate(s.date) + ", " + s.topics + (s.batch ? " (" + s.batch + ")" : "") + (isAdmin() ? ", " + s.trainer : "") + " - " + s.n + " present"
+  ]), isAdmin() ? "All sessions" : "All my sessions", keepS);
 }
 
 function filtered() {
   const from = $("fFrom").value, to = $("fTo").value;
-  const t = $("fTrainer").value, p = $("fTopic").value;
+  const t = $("fTrainer").value, p = $("fTopic").value, s = $("fSession").value;
   return ROWS.filter((r) =>
     (!from || r.date >= from) && (!to || r.date <= to) &&
-    (!t || r.trainer === t) && (!p || topicsOf(r).includes(p)));
+    (!t || r.trainer === t) && (!s || r.sessionId === s) &&
+    (!p || topicsOf(r).includes(p)));
 }
 
-["fFrom", "fTo", "fTrainer", "fTopic"].forEach((id) => $(id).addEventListener("change", render));
+$("fTrainer").addEventListener("change", () => { $("fSession").value = ""; buildFilters(); render(); });
+["fFrom", "fTo", "fSession", "fTopic"].forEach((id) => $(id).addEventListener("change", render));
+
+/* ---------- Drawing ---------- */
 
 function countEntries(items) {
   const m = new Map();
@@ -243,9 +353,34 @@ function cell(text, cls) {
   return td;
 }
 
+function fillTable(table, cols, rows, emptyText, onRow) {
+  const thead = table.querySelector("thead"), tbody = table.querySelector("tbody");
+  thead.innerHTML = "";
+  const hr = document.createElement("tr");
+  cols.forEach((c) => {
+    const th = document.createElement("th");
+    th.textContent = c.label;
+    if (c.num) th.className = "num";
+    hr.appendChild(th);
+  });
+  thead.appendChild(hr);
+  tbody.innerHTML = "";
+  if (!rows.length) {
+    const tr = document.createElement("tr");
+    const td = cell(emptyText); td.colSpan = cols.length;
+    tr.appendChild(td); tbody.appendChild(tr);
+    return;
+  }
+  rows.forEach((r) => {
+    const tr = document.createElement("tr");
+    cols.forEach((c) => tr.appendChild(cell(c.get(r), c.num ? "num" : "")));
+    if (onRow) { tr.className = "click"; tr.addEventListener("click", () => onRow(r)); }
+    tbody.appendChild(tr);
+  });
+}
+
 function render() {
   const rows = filtered();
-  $("loaded").textContent = ROWS.length + " records in total";
 
   const people = new Set(rows.map((r) => r.asmId || r.mobile));
   const sessions = new Set(rows.map((r) => r.sessionId));
@@ -259,29 +394,33 @@ function render() {
   renderBars($("bZone"), countEntries(rows.map((r) => r.zone)));
   renderBars($("bState"), countEntries(rows.map((r) => r.state)));
 
-  // Sessions table
+  // Sessions table (tap a row to pick that session)
   const sm = new Map();
   rows.forEach((r) => {
-    if (!sm.has(r.sessionId)) sm.set(r.sessionId, { date: r.date, trainer: r.trainer, topics: topicsOf(r).join(", "), batch: r.batch, n: 0 });
+    if (!sm.has(r.sessionId)) sm.set(r.sessionId, { id: r.sessionId, date: r.date, trainer: r.trainer, topics: topicsOf(r).join(", "), batch: r.batch, n: 0 });
     sm.get(r.sessionId).n++;
   });
-  const sBody = $("tSessions"); sBody.innerHTML = "";
-  Array.from(sm.values()).sort((a, b) => (a.date < b.date ? 1 : -1)).forEach((s) => {
-    const tr = document.createElement("tr");
-    tr.append(cell(s.date), cell(s.trainer), cell(s.topics), cell(s.batch), cell(s.n, "num"));
-    sBody.appendChild(tr);
-  });
-  if (!sm.size) { const tr = document.createElement("tr"); tr.append(cell("No sessions for this filter.")); sBody.appendChild(tr); }
+  const sessCols = [{ label: "Date", get: (s) => fmtDate(s.date) }];
+  if (isAdmin()) sessCols.push({ label: "Trainer", get: (s) => s.trainer });
+  sessCols.push({ label: "Topics", get: (s) => s.topics }, { label: "Batch", get: (s) => s.batch }, { label: "Attendees", num: true, get: (s) => s.n });
+  fillTable($("tSessions"), sessCols,
+    Array.from(sm.values()).sort((a, b) => (a.date < b.date ? 1 : -1)),
+    "No sessions for this filter.",
+    (s) => { $("fSession").value = s.id; render(); $("pTitle").scrollIntoView({ behavior: "smooth", block: "start" }); });
 
-  // Records table (latest 100)
-  const latest = rows.slice().reverse().slice(0, 100);
-  const rBody = $("tRecords"); rBody.innerHTML = "";
-  latest.forEach((r) => {
-    const tr = document.createElement("tr");
-    tr.append(cell(r.ts), cell(r.name), cell(r.asmId), cell(r.mobile), cell(r.zone), cell(r.state), cell(topicsOf(r).join(", ")), cell(r.trainer));
-    rBody.appendChild(tr);
-  });
-  $("recNote").textContent = rows.length > 100 ? "Showing the latest 100 of " + rows.length + ". Download the CSV for everything." : "";
+  // Participants (newest first)
+  const list = rows.slice().reverse();
+  const shown = list.slice(0, 500);
+  const partCols = [
+    { label: "Time", get: (r) => r.ts }, { label: "Name", get: (r) => r.name },
+    { label: "ASM ID", get: (r) => r.asmId }, { label: "Mobile", get: (r) => r.mobile },
+    { label: "Zone", get: (r) => r.zone }, { label: "State", get: (r) => r.state },
+    { label: "Cluster", get: (r) => r.cluster }, { label: "Topics", get: (r) => topicsOf(r).join(", ") }
+  ];
+  if (isAdmin()) partCols.push({ label: "Trainer", get: (r) => r.trainer });
+  fillTable($("tParticipants"), partCols, shown, "No participants for this filter.");
+  $("pTitle").textContent = "Participants (" + rows.length + ")";
+  $("recNote").textContent = list.length > shown.length ? "Showing the latest 500 of " + list.length + ". Download the CSV for everything." : "";
 }
 
 /* ---------- CSV download ---------- */
@@ -295,12 +434,12 @@ $("csv").addEventListener("click", () => {
   const blob = new Blob(["\ufeff" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = "attendance.csv";
+  a.download = "attendance" + (isAdmin() ? "" : "-" + AUTH.trainer.replace(/\s+/g, "-").toLowerCase()) + ".csv";
   a.click();
   URL.revokeObjectURL(a.href);
 });
 
-/* ---------- Roster: sync and upload ---------- */
+/* ---------- Roster: sync and upload (admin only) ---------- */
 
 function showRosterMsg(ok, text) {
   const m = $("rMsg");
@@ -313,7 +452,7 @@ $("rSync").addEventListener("click", async () => {
   const btn = $("rSync");
   btn.disabled = true; btn.textContent = "Syncing…";
   try {
-    const res = await apiPost({ action: "sync", pin: PIN });
+    const res = await apiPost({ action: "sync", pin: AUTH.pin });
     if (res.error) throw new Error(res.error);
     showRosterMsg(true, "Roster synced. " + res.total + " ASMs are now in the roster.");
   } catch (err) {
@@ -366,7 +505,7 @@ $("rUpload").addEventListener("click", async () => {
   const btn = $("rUpload");
   btn.disabled = true; btn.textContent = "Uploading…";
   try {
-    const res = await apiPost({ action: "roster", pin: PIN, mode: mode, rows: rosterRows });
+    const res = await apiPost({ action: "roster", pin: AUTH.pin, mode: mode, rows: rosterRows });
     if (res.error) throw new Error(res.error);
     showRosterMsg(true, "Roster updated. " + res.total + " ASMs are now in the roster.");
   } catch (err) {
@@ -378,8 +517,9 @@ $("rUpload").addEventListener("click", async () => {
 
 /* ---------- Start ---------- */
 
+loadWho();
 const saved = recall();
-if (saved) unlock(saved);
+if (saved) signIn(saved, true);
 </script>
 </body>
 </html>
