@@ -26,12 +26,19 @@
     <label for="trainer">Trainer</label>
     <select id="trainer"><option value="">Loading…</option></select>
 
-    <label for="topic">Topic</label>
-    <select id="topic"><option value="">Loading…</option></select>
-    <input id="topicOther" type="text" placeholder="Type the topic" maxlength="120" hidden style="margin-top:8px">
+    <label>Topics</label>
+    <div class="hint" style="margin-top:0">Tick every topic covered. Most sessions have 2 or 3.</div>
+    <div id="topics" class="checks"></div>
+    <div class="inline">
+      <input id="topicOther" type="text" placeholder="Other topic: type it here" maxlength="100">
+      <button id="addTopic" type="button" class="ghost">Add topic</button>
+    </div>
 
     <label for="date">Date</label>
     <input id="date" type="date">
+
+    <label for="batch">Batch (optional)</label>
+    <input id="batch" type="text" maxlength="40" placeholder="Only if you run two sessions on one day, e.g. Morning">
 
     <button id="go" class="block" type="button">Generate QR</button>
     <div id="msg" class="msg err" hidden></div>
@@ -53,7 +60,6 @@
 <script src="config.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
-const OTHER = "__other__";
 let currentUrl = "";
 let currentInfo = null;
 
@@ -69,13 +75,6 @@ function showError(text) {
   m.hidden = !text;
 }
 
-function fillSelect(sel, values, placeholder, withOther) {
-  sel.innerHTML = "";
-  sel.add(new Option(placeholder, ""));
-  values.forEach((v) => sel.add(new Option(v, v)));
-  if (withOther) sel.add(new Option("Other (type it)", OTHER));
-}
-
 function slug(s) {
   return String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
 }
@@ -84,62 +83,92 @@ function formatDate(iso) {
   return new Date(iso + "T00:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 }
 
+function addTopicBox(name, checked) {
+  const existing = Array.from(document.querySelectorAll("#topics input"))
+    .find((i) => i.value.toLowerCase() === name.toLowerCase());
+  if (existing) { existing.checked = true; return; }
+  const label = document.createElement("label");
+  const cb = document.createElement("input");
+  cb.type = "checkbox"; cb.value = name; cb.checked = !!checked;
+  label.appendChild(cb);
+  label.appendChild(document.createTextNode(name));
+  $("topics").appendChild(label);
+}
+
+function selectedTopics() {
+  return Array.from(document.querySelectorAll("#topics input:checked")).map((i) => i.value);
+}
+
 async function init() {
   $("date").value = todayISO();
   if (!scriptReady()) {
     showError("Setup incomplete: add your Apps Script URL in config.js.");
-    fillSelect($("trainer"), [], "Not available", false);
-    fillSelect($("topic"), [], "Not available", false);
+    $("trainer").innerHTML = "<option>Not available</option>";
     $("go").disabled = true;
     return;
   }
   try {
     const cfg = await apiGet({ action: "config" });
     if (cfg.error) throw new Error(cfg.error);
-    fillSelect($("trainer"), cfg.trainers || [], "Select your name", false);
-    fillSelect($("topic"), cfg.topics || [], "Select a topic", true);
+    const sel = $("trainer");
+    sel.innerHTML = "";
+    sel.add(new Option("Select your name", ""));
+    (cfg.trainers || []).forEach((t) => sel.add(new Option(t, t)));
+    (cfg.topics || []).forEach((t) => addTopicBox(t, false));
   } catch (e) {
     showError("Could not load trainers and topics. Check your internet connection and refresh.");
-    fillSelect($("trainer"), [], "Not available", false);
-    fillSelect($("topic"), [], "Not available", false);
+    $("trainer").innerHTML = "<option>Not available</option>";
   }
 }
 
-$("topic").addEventListener("change", () => {
-  $("topicOther").hidden = $("topic").value !== OTHER;
-  if (!$("topicOther").hidden) $("topicOther").focus();
+function addOtherTopic() {
+  const v = $("topicOther").value.trim();
+  if (!v) return;
+  addTopicBox(v, true);
+  $("topicOther").value = "";
+}
+$("addTopic").addEventListener("click", addOtherTopic);
+$("topicOther").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); addOtherTopic(); }
 });
 
-$("go").addEventListener("click", () => {
+$("go").addEventListener("click", async () => {
   showError("");
+  addOtherTopic(); // pick up a topic that was typed but not added yet
   const trainer = $("trainer").value;
-  const topic = $("topic").value === OTHER ? $("topicOther").value.trim() : $("topic").value;
+  const topics = selectedTopics();
   const date = $("date").value;
+  const batch = $("batch").value.trim();
   if (!trainer) return showError("Select your name.");
-  if (!topic) return showError("Select a topic, or choose Other and type it.");
+  if (!topics.length) return showError("Tick at least one topic, or add one under Other.");
   if (!date) return showError("Select the session date.");
 
-  // Same trainer + topic + date always gives the same session ID,
-  // so regenerating the QR never splits one session into two.
-  const sessionId = [date, slug(trainer), slug(topic)].join("_");
+  const btn = $("go");
+  btn.disabled = true;
+  btn.textContent = "Creating QR…";
+  try {
+    const res = await apiPost({ action: "createSession", trainer, topics, date, batch });
+    if (res.error || !res.code) throw new Error(res.error || "No session code returned.");
 
-  const url = new URL("attend.html", location.href);
-  url.searchParams.set("s", sessionId);
-  url.searchParams.set("t", trainer);
-  url.searchParams.set("p", topic);
-  url.searchParams.set("d", date);
-  currentUrl = url.toString();
-  currentInfo = { trainer, topic, date };
+    const url = new URL("attend.html", location.href);
+    url.searchParams.set("c", res.code);
+    currentUrl = url.toString();
+    currentInfo = { trainer, topics, date, batch };
 
-  const box = $("qr");
-  box.innerHTML = "";
-  new QRCode(box, { text: currentUrl, width: 300, height: 300, correctLevel: QRCode.CorrectLevel.M });
+    const box = $("qr");
+    box.innerHTML = "";
+    new QRCode(box, { text: currentUrl, width: 300, height: 300, correctLevel: QRCode.CorrectLevel.M });
 
-  $("rTopic").textContent = topic;
-  $("rMeta").textContent = trainer + ", " + formatDate(date);
-  $("copied").hidden = true;
-  $("result").hidden = false;
-  $("result").scrollIntoView({ behavior: "smooth", block: "start" });
+    $("rTopic").textContent = topics.join(", ");
+    $("rMeta").textContent = trainer + ", " + formatDate(date) + (batch ? ", " + batch : "");
+    $("copied").hidden = true;
+    $("result").hidden = false;
+    $("result").scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (e) {
+    showError("Could not create the QR code. " + e.message);
+  }
+  btn.disabled = false;
+  btn.textContent = "Generate QR";
 });
 
 function wrapText(ctx, text, maxWidth) {
@@ -161,7 +190,7 @@ $("dl").addEventListener("click", () => {
   const c = document.createElement("canvas");
   const ctx = c.getContext("2d");
   ctx.font = "700 30px sans-serif";
-  const topicLines = wrapText(ctx, currentInfo.topic, W - pad * 2);
+  const topicLines = wrapText(ctx, currentInfo.topics.join(", "), W - pad * 2);
   const H = pad + topicLines.length * 38 + 70 + qrSize + pad;
   c.width = W; c.height = H;
   ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, W, H);
@@ -170,12 +199,12 @@ $("dl").addEventListener("click", () => {
   let y = pad + 30;
   topicLines.forEach((l) => { ctx.fillText(l, W / 2, y); y += 38; });
   ctx.fillStyle = "#5b6876"; ctx.font = "400 22px sans-serif";
-  ctx.fillText(currentInfo.trainer + ", " + formatDate(currentInfo.date), W / 2, y + 6);
+  ctx.fillText(currentInfo.trainer + ", " + formatDate(currentInfo.date) + (currentInfo.batch ? ", " + currentInfo.batch : ""), W / 2, y + 6);
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(qrCanvas, (W - qrSize) / 2, y + 40, qrSize, qrSize);
   const a = document.createElement("a");
   a.href = c.toDataURL("image/png");
-  a.download = "attendance-qr-" + slug(currentInfo.topic) + "-" + currentInfo.date + ".png";
+  a.download = "attendance-qr-" + slug(currentInfo.trainer) + "-" + currentInfo.date + ".png";
   a.click();
 });
 
