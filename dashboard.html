@@ -66,7 +66,7 @@
     <div class="btns">
       <button id="refresh" class="ghost" type="button">Refresh</button>
       <button id="csvEmp" class="ghost" type="button">Employees CSV</button>
-      <button id="csvRet" class="ghost" type="button">Retailers CSV</button>
+      <button id="csvRet" class="ghost" type="button">Retailers, Sampark, Mitra CSV</button>
       <button id="signout" class="ghost" type="button">Sign out</button>
     </div>
   </div>
@@ -83,8 +83,10 @@
   </div>
 
   <div class="kpis">
-    <div class="kpi"><b id="kEmp">0</b><span>Employees present (ASM and Sales)</span></div>
+    <div class="kpi"><b id="kEmp">0</b><span>Sales employees present</span></div>
     <div class="kpi"><b id="kRet">0</b><span>Retailers present</span></div>
+    <div class="kpi"><b id="kSam">0</b><span>Sampark present</span></div>
+    <div class="kpi"><b id="kMit">0</b><span>Mitra present</span></div>
     <div class="kpi"><b id="kPeople">0</b><span>Unique people</span></div>
     <div class="kpi"><b id="kSessions">0</b><span>Sessions</span></div>
     <div class="kpi"><b id="kOff">0</b><span>Employees not in roster</span></div>
@@ -110,7 +112,7 @@
   </div>
 
   <div id="retBlock">
-    <h2 id="rTitle">Retailers</h2>
+    <h2 id="rTitle">Retailers, Sampark and Mitra</h2>
     <div class="tablewrap"><table id="tRetailers"><thead></thead><tbody></tbody></table></div>
     <p class="hint" id="retNote"></p>
   </div>
@@ -148,8 +150,12 @@
 const $ = (id) => document.getElementById(id);
 const ADMIN = "__admin__";
 const REFRESH_MS = 30000;
-const AUD = { ASM: "ASM", Sales: "Sales employees", Retailer: "Retailers" };
-const audOf = (r) => r.audience || "ASM";
+const AUD = { Sales: "Sales employees", Retailer: "Retailers", Sampark: "Sampark", Mitra: "Mitra" };
+const SHORT = ["Retailer", "Sampark", "Mitra"];
+// Older rows say ASM (or nothing); they are shown as Sales employees.
+const audOf = (r) => { const a = r.audience || "ASM"; return a === "ASM" ? "Sales" : a; };
+const isShort = (r) => SHORT.includes(audOf(r));
+const isEmp = (r) => !isShort(r);
 
 let AUTH = null;      // { role: "admin" | "trainer", trainer, pin }
 let ROWS = [];
@@ -317,7 +323,7 @@ function buildFilters() {
   const sessions = Array.from(map.values()).sort((a, b) => (a.date === b.date ? b.last - a.last : (a.date < b.date ? 1 : -1)));
   fillSelect($("fSession"), sessions.map((s) => [
     s.id,
-    fmtDate(s.date) + ", " + s.topics + (s.batch ? " (" + s.batch + ")" : "") + (s.aud !== "ASM" ? ", " + AUD[s.aud] : "") + (isAdmin() ? ", " + s.trainer : "") + " - " + s.n + " present"
+    fmtDate(s.date) + ", " + s.topics + (s.batch ? " (" + s.batch + ")" : "") + (s.aud !== "Sales" ? ", " + AUD[s.aud] : "") + (isAdmin() ? ", " + s.trainer : "") + " - " + s.n + " present"
   ]), isAdmin() ? "All sessions" : "All my sessions", keepS);
 }
 
@@ -401,16 +407,19 @@ function render() {
 
   const people = new Set(rows.map((r) => r.asmId || r.mobile));
   const sessions = new Set(rows.map((r) => r.sessionId));
-  $("kEmp").textContent = rows.filter((r) => audOf(r) !== "Retailer").length;
-  $("kRet").textContent = rows.filter((r) => audOf(r) === "Retailer").length;
+  const count = (a) => rows.filter((r) => audOf(r) === a).length;
+  $("kEmp").textContent = count("Sales");
+  $("kRet").textContent = count("Retailer");
+  $("kSam").textContent = count("Sampark");
+  $("kMit").textContent = count("Mitra");
   $("kPeople").textContent = people.size;
   $("kSessions").textContent = sessions.size;
-  $("kOff").textContent = rows.filter((r) => audOf(r) !== "Retailer" && r.inRoster !== "Yes").length;
+  $("kOff").textContent = rows.filter((r) => isEmp(r) && r.inRoster !== "Yes").length;
 
   renderBars($("bTrainer"), countEntries(rows.map((r) => r.trainer)));
   renderBars($("bAudience"), countEntries(rows.map((r) => AUD[audOf(r)] || audOf(r))));
   renderBars($("bTopic"), countEntries([].concat(...rows.map(topicsOf))));
-  renderBars($("bZone"), countEntries(rows.filter((r) => audOf(r) !== "Retailer").map((r) => r.zone)));
+  renderBars($("bZone"), countEntries(rows.filter((r) => isEmp(r)).map((r) => r.zone)));
   renderBars($("bState"), countEntries(rows.map((r) => r.state)));
 
   // Sessions table (tap a row to pick that session)
@@ -428,8 +437,8 @@ function render() {
     (s) => { $("fSession").value = s.id; render(); ($("empBlock").hidden ? $("retBlock") : $("empBlock")).scrollIntoView({ behavior: "smooth", block: "start" }); });
 
   // Employees (ASM and Sales) and Retailers are listed separately, newest first
-  const emp = rows.filter((r) => audOf(r) !== "Retailer").reverse();
-  const ret = rows.filter((r) => audOf(r) === "Retailer").reverse();
+  const emp = rows.filter((r) => isEmp(r)).reverse();
+  const ret = rows.filter((r) => isShort(r)).reverse();
 
   const empCols = [
     { label: "Time", get: (r) => r.ts }, { label: "Name", get: (r) => r.name },
@@ -441,22 +450,23 @@ function render() {
   const retCols = [
     { label: "Time", get: (r) => r.ts }, { label: "Name", get: (r) => r.name },
     { label: "Mobile", get: (r) => r.mobile }, { label: "State", get: (r) => r.state },
-    { label: "Retailer code", get: (r) => r.retailerCode }, { label: "Topics", get: (r) => topicsOf(r).join(", ") }
+    { label: "Audience", get: (r) => AUD[audOf(r)] || audOf(r) },
+    { label: "Code", get: (r) => r.retailerCode }, { label: "Topics", get: (r) => topicsOf(r).join(", ") }
   ];
   if (isAdmin()) { empCols.push({ label: "Trainer", get: (r) => r.trainer }); retCols.push({ label: "Trainer", get: (r) => r.trainer }); }
 
   fillTable($("tEmployees"), empCols, emp.slice(0, 500), "No employees for this filter.");
-  fillTable($("tRetailers"), retCols, ret.slice(0, 500), "No retailers for this filter.");
-  $("pTitle").textContent = "Employees, ASM and Sales (" + emp.length + ")";
-  $("rTitle").textContent = "Retailers (" + ret.length + ")";
+  fillTable($("tRetailers"), retCols, ret.slice(0, 500), "No retailers, Sampark or Mitra for this filter.");
+  $("pTitle").textContent = "Sales employees (" + emp.length + ")";
+  $("rTitle").textContent = "Retailers, Sampark and Mitra (" + ret.length + ")";
   $("empNote").textContent = emp.length > 500 ? "Showing the latest 500 of " + emp.length + ". Download the CSV for everything." : "";
   $("retNote").textContent = ret.length > 500 ? "Showing the latest 500 of " + ret.length + ". Download the CSV for everything." : "";
 
   // Show a section only when it has something to show (or when the Audience filter asks for it)
   const a = $("fAudience").value;
-  const anyEmp = ROWS.some((r) => audOf(r) !== "Retailer"), anyRet = ROWS.some((r) => audOf(r) === "Retailer");
-  $("empBlock").hidden = a ? a === "Retailer" : !(anyEmp || !anyRet);
-  $("retBlock").hidden = a ? a !== "Retailer" : !anyRet;
+  const anyEmp = ROWS.some((r) => isEmp(r)), anyRet = ROWS.some((r) => isShort(r));
+  $("empBlock").hidden = a ? SHORT.includes(a) : !(anyEmp || !anyRet);
+  $("retBlock").hidden = a ? !SHORT.includes(a) : !anyRet;
 }
 
 /* ---------- CSV download ---------- */
@@ -476,14 +486,14 @@ $("csvEmp").addEventListener("click", () => {
   downloadCsv("attendance-employees",
     ["Timestamp", "Session ID", "Date", "Trainer", "Topics", "Batch", "Name", "ID", "Mobile", "Zone", "State", "Cluster", "In Roster", "Audience"],
     ["ts", "sessionId", "date", "trainer", "topics", "batch", "name", "asmId", "mobile", "zone", "state", "cluster", "inRoster", "audience"],
-    filtered().filter((r) => audOf(r) !== "Retailer"));
+    filtered().filter((r) => isEmp(r)));
 });
 
 $("csvRet").addEventListener("click", () => {
-  downloadCsv("attendance-retailers",
-    ["Timestamp", "Session ID", "Date", "Trainer", "Topics", "Batch", "Name", "Mobile", "State", "Retailer Code"],
-    ["ts", "sessionId", "date", "trainer", "topics", "batch", "name", "mobile", "state", "retailerCode"],
-    filtered().filter((r) => audOf(r) === "Retailer"));
+  downloadCsv("attendance-retailers-sampark-mitra",
+    ["Timestamp", "Session ID", "Date", "Trainer", "Topics", "Batch", "Audience", "Name", "Mobile", "State", "Code"],
+    ["ts", "sessionId", "date", "trainer", "topics", "batch", "audience", "name", "mobile", "state", "retailerCode"],
+    filtered().filter((r) => isShort(r)));
 });
 
 /* ---------- Roster: sync and upload (admin only) ---------- */
