@@ -26,6 +26,13 @@
     <label for="trainer">Trainer</label>
     <select id="trainer"><option value="">Loading…</option></select>
 
+    <label for="audience">Who is this session for?</label>
+    <select id="audience">
+      <option value="ASM">ASM</option>
+      <option value="Sales">Sales employees</option>
+      <option value="Retailer">Retailers</option>
+    </select>
+
     <label>Topics</label>
     <div class="hint" style="margin-top:0">Tick every topic covered. Most sessions have 2 or 3.</div>
     <div id="topics" class="checks"></div>
@@ -60,6 +67,7 @@
 <script src="config.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
+const AUD = { ASM: "ASM", Sales: "Sales employees", Retailer: "Retailers" };
 let currentUrl = "";
 let currentInfo = null;
 
@@ -81,6 +89,11 @@ function slug(s) {
 
 function formatDate(iso) {
   return new Date(iso + "T00:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+}
+
+function metaText(info) {
+  return info.trainer + ", " + formatDate(info.date) + (info.batch ? ", " + info.batch : "") +
+    (info.audience && info.audience !== "ASM" ? ", " + AUD[info.audience] : "");
 }
 
 function addTopicBox(name, checked) {
@@ -139,6 +152,7 @@ $("go").addEventListener("click", async () => {
   const topics = selectedTopics();
   const date = $("date").value;
   const batch = $("batch").value.trim();
+  const audience = $("audience").value;
   if (!trainer) return showError("Select your name.");
   if (!topics.length) return showError("Tick at least one topic, or add one under Other.");
   if (!date) return showError("Select the session date.");
@@ -147,20 +161,20 @@ $("go").addEventListener("click", async () => {
   btn.disabled = true;
   btn.textContent = "Creating QR…";
   try {
-    const res = await apiPost({ action: "createSession", trainer, topics, date, batch });
+    const res = await apiPost({ action: "createSession", trainer, topics, date, batch, audience });
     if (res.error || !res.code) throw new Error(res.error || "No session code returned.");
 
     const url = new URL("attend.html", location.href);
     url.searchParams.set("c", res.code);
     currentUrl = url.toString();
-    currentInfo = { trainer, topics, date, batch };
+    currentInfo = { trainer, topics, date, batch, audience };
 
     const box = $("qr");
     box.innerHTML = "";
     new QRCode(box, { text: currentUrl, width: 300, height: 300, correctLevel: QRCode.CorrectLevel.M });
 
     $("rTopic").textContent = topics.join(", ");
-    $("rMeta").textContent = trainer + ", " + formatDate(date) + (batch ? ", " + batch : "");
+    $("rMeta").textContent = metaText(currentInfo);
     $("copied").hidden = true;
     $("result").hidden = false;
     $("result").scrollIntoView({ behavior: "smooth", block: "start" });
@@ -199,7 +213,7 @@ $("dl").addEventListener("click", () => {
   let y = pad + 30;
   topicLines.forEach((l) => { ctx.fillText(l, W / 2, y); y += 38; });
   ctx.fillStyle = "#5b6876"; ctx.font = "400 22px sans-serif";
-  ctx.fillText(currentInfo.trainer + ", " + formatDate(currentInfo.date) + (currentInfo.batch ? ", " + currentInfo.batch : ""), W / 2, y + 6);
+  ctx.fillText(metaText(currentInfo), W / 2, y + 6);
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(qrCanvas, (W - qrSize) / 2, y + 40, qrSize, qrSize);
   const a = document.createElement("a");
