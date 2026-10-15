@@ -28,9 +28,10 @@
 
     <label for="audience">Who is this session for?</label>
     <select id="audience">
-      <option value="ASM">ASM</option>
       <option value="Sales">Sales employees</option>
       <option value="Retailer">Retailers</option>
+      <option value="Sampark">Sampark</option>
+      <option value="Mitra">Mitra</option>
     </select>
 
     <label>Topics</label>
@@ -67,7 +68,7 @@
 <script src="config.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
-const AUD = { ASM: "ASM", Sales: "Sales employees", Retailer: "Retailers" };
+const AUD = { Sales: "Sales employees", Retailer: "Retailers", Sampark: "Sampark", Mitra: "Mitra" };
 let currentUrl = "";
 let currentInfo = null;
 
@@ -93,7 +94,7 @@ function formatDate(iso) {
 
 function metaText(info) {
   return info.trainer + ", " + formatDate(info.date) + (info.batch ? ", " + info.batch : "") +
-    (info.audience && info.audience !== "ASM" ? ", " + AUD[info.audience] : "");
+    (info.audience && info.audience !== "Sales" ? ", " + AUD[info.audience] : "");
 }
 
 function addTopicBox(name, checked) {
