@@ -84,7 +84,7 @@
       <select id="rState"></select>
       <input id="rStateOther" type="text" placeholder="Type your state / अपना राज्य लिखें" maxlength="60" hidden style="margin-top:8px">
 
-      <label for="rCode">Retailer code (optional) <span class="hi">/ रिटेलर कोड (वैकल्पिक)</span></label>
+      <label for="rCode" id="rCodeLabel">Code (optional) <span class="hi">/ कोड (वैकल्पिक)</span></label>
       <input id="rCode" type="text" maxlength="40" autocomplete="off">
     </div>
 
@@ -112,7 +112,11 @@ const T = {
 
 const code = new URLSearchParams(location.search).get("c") || "";
 let session = null;
-let audience = "ASM";   // "ASM" and "Sales" use the roster form, "Retailer" uses the short form
+let audience = "Sales"; // Sales employees use the roster form; Retailer, Sampark and Mitra use the short form
+const SHORT_FORM = ["Retailer", "Sampark", "Mitra"];
+const isShort = () => SHORT_FORM.includes(audience);
+// Wording for the optional code field, per audience: [English, Hindi]
+const CODE_LABEL = { Retailer: ["Retailer code", "रिटेलर कोड"], Sampark: ["Sampark code", "संपर्क कोड"], Mitra: ["Mitra code", "मित्र कोड"] };
 let geo = {};
 let matched = null;
 let manual = true;
@@ -321,14 +325,14 @@ const MSG = {
 };
 
 function buildPayload() {
-  if (audience === "Retailer") {
+  if (isShort()) {
     const name = $("rName").value.trim();
     const mobile = cleanMobile($("rMobile").value);
     const state = getValue($("rState"), $("rStateOther"));
     if (name.length < 2) return { error: MSG.name };
     if (mobile.length !== 10) return { error: MSG.mobile };
     if (!state) return { error: MSG.state };
-    return { name, data: { action: "submit", sessionId: code, name, mobile, state, retailerCode: $("rCode").value.trim() } };
+    return { name, data: { action: "submit", sessionId: code, name, mobile, state, code: $("rCode").value.trim() } };
   }
   const name = $("name").value.trim();
   const mobile = cleanMobile($("mobile").value);
@@ -399,7 +403,7 @@ async function init() {
       return;
     }
     session = s.session;
-    audience = session.audience || "ASM";
+    audience = session.audience || "Sales";
     geo = cfg.geo || {};
   } catch (e) {
     showBad("Could not load this session. Check your internet connection and scan again.", "सत्र लोड नहीं हो सका। इंटरनेट जाँचें और फिर से स्कैन करें।");
@@ -410,8 +414,17 @@ async function init() {
   $("sessionBox").hidden = false;
   resetDropdowns();
   setManual(true);
-  $("asmForm").hidden = audience === "Retailer";
-  $("retailerForm").hidden = audience !== "Retailer";
+  $("asmForm").hidden = isShort();
+  $("retailerForm").hidden = !isShort();
+  if (isShort()) {
+    const [en, hi] = CODE_LABEL[audience];
+    $("rCodeLabel").innerHTML = "";
+    $("rCodeLabel").appendChild(document.createTextNode(en + " (optional) "));
+    const sp = document.createElement("span");
+    sp.className = "hi";
+    sp.textContent = "/ " + hi + " (वैकल्पिक)";
+    $("rCodeLabel").appendChild(sp);
+  }
   $("formCard").hidden = false;
 }
 
