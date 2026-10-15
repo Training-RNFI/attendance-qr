@@ -65,7 +65,8 @@
     </div>
     <div class="btns">
       <button id="refresh" class="ghost" type="button">Refresh</button>
-      <button id="csv" class="ghost" type="button">Download CSV</button>
+      <button id="csvEmp" class="ghost" type="button">Employees CSV</button>
+      <button id="csvRet" class="ghost" type="button">Retailers CSV</button>
       <button id="signout" class="ghost" type="button">Sign out</button>
     </div>
   </div>
@@ -77,21 +78,24 @@
       <div class="admin-only"><label for="fTrainer">Trainer</label><select id="fTrainer"></select></div>
       <div><label for="fSession">Session</label><select id="fSession"></select></div>
       <div><label for="fTopic">Topic</label><select id="fTopic"></select></div>
+      <div><label for="fAudience">Audience</label><select id="fAudience"></select></div>
     </div>
   </div>
 
   <div class="kpis">
-    <div class="kpi"><b id="kAtt">0</b><span>Attendances</span></div>
-    <div class="kpi"><b id="kPeople">0</b><span>Unique participants</span></div>
+    <div class="kpi"><b id="kEmp">0</b><span>Employees present (ASM and Sales)</span></div>
+    <div class="kpi"><b id="kRet">0</b><span>Retailers present</span></div>
+    <div class="kpi"><b id="kPeople">0</b><span>Unique people</span></div>
     <div class="kpi"><b id="kSessions">0</b><span>Sessions</span></div>
-    <div class="kpi"><b id="kOff">0</b><span>Not in roster</span></div>
+    <div class="kpi"><b id="kOff">0</b><span>Employees not in roster</span></div>
   </div>
 
   <h2>Breakdown</h2>
   <div class="grid2">
     <div class="card admin-only"><h2>By trainer</h2><div id="bTrainer"></div></div>
+    <div class="card"><h2>By audience</h2><div id="bAudience"></div></div>
     <div class="card"><h2>By topic</h2><div id="bTopic"></div><p class="hint">A session with several topics counts once under each topic.</p></div>
-    <div class="card"><h2>By zone</h2><div id="bZone"></div></div>
+    <div class="card"><h2>By zone (employees)</h2><div id="bZone"></div></div>
     <div class="card"><h2>By state</h2><div id="bState"></div></div>
   </div>
 
@@ -99,9 +103,17 @@
   <p class="hint" style="margin-top:-4px">Tap a session to see only its participants.</p>
   <div class="tablewrap"><table id="tSessions"><thead></thead><tbody></tbody></table></div>
 
-  <h2 id="pTitle">Participants</h2>
-  <div class="tablewrap"><table id="tParticipants"><thead></thead><tbody></tbody></table></div>
-  <p class="hint" id="recNote"></p>
+  <div id="empBlock">
+    <h2 id="pTitle">Employees</h2>
+    <div class="tablewrap"><table id="tEmployees"><thead></thead><tbody></tbody></table></div>
+    <p class="hint" id="empNote"></p>
+  </div>
+
+  <div id="retBlock">
+    <h2 id="rTitle">Retailers</h2>
+    <div class="tablewrap"><table id="tRetailers"><thead></thead><tbody></tbody></table></div>
+    <p class="hint" id="retNote"></p>
+  </div>
 
   <div class="admin-only">
     <h2>ASM roster</h2>
@@ -136,6 +148,8 @@
 const $ = (id) => document.getElementById(id);
 const ADMIN = "__admin__";
 const REFRESH_MS = 30000;
+const AUD = { ASM: "ASM", Sales: "Sales employees", Retailer: "Retailers" };
+const audOf = (r) => r.audience || "ASM";
 
 let AUTH = null;      // { role: "admin" | "trainer", trainer, pin }
 let ROWS = [];
@@ -281,7 +295,7 @@ function fillSelect(sel, items, firstLabel, keep) {
 }
 
 function buildFilters() {
-  const keepT = $("fTrainer").value, keepP = $("fTopic").value, keepS = $("fSession").value;
+  const keepT = $("fTrainer").value, keepP = $("fTopic").value, keepS = $("fSession").value, keepA = $("fAudience").value;
 
   const trainers = Array.from(new Set(ROWS.map((r) => r.trainer).filter(Boolean))).sort();
   fillSelect($("fTrainer"), trainers.map((t) => [t, t]), "All trainers", keepT);
@@ -289,33 +303,36 @@ function buildFilters() {
   const topics = Array.from(new Set([].concat(...ROWS.map(topicsOf)))).sort();
   fillSelect($("fTopic"), topics.map((t) => [t, t]), "All topics", keepP);
 
+  fillSelect($("fAudience"), Object.keys(AUD).map((k) => [k, AUD[k]]), "All audiences", keepA);
+
   // Sessions, newest first, limited to the chosen trainer (admin only)
   const t = $("fTrainer").value;
   const map = new Map();
   ROWS.forEach((r, i) => {
     if (t && r.trainer !== t) return;
-    if (!map.has(r.sessionId)) map.set(r.sessionId, { id: r.sessionId, date: r.date, trainer: r.trainer, topics: topicsOf(r).join(", "), batch: r.batch, n: 0, last: 0 });
+    if (!map.has(r.sessionId)) map.set(r.sessionId, { id: r.sessionId, date: r.date, trainer: r.trainer, topics: topicsOf(r).join(", "), batch: r.batch, aud: audOf(r), n: 0, last: 0 });
     const s = map.get(r.sessionId);
     s.n++; s.last = i;
   });
   const sessions = Array.from(map.values()).sort((a, b) => (a.date === b.date ? b.last - a.last : (a.date < b.date ? 1 : -1)));
   fillSelect($("fSession"), sessions.map((s) => [
     s.id,
-    fmtDate(s.date) + ", " + s.topics + (s.batch ? " (" + s.batch + ")" : "") + (isAdmin() ? ", " + s.trainer : "") + " - " + s.n + " present"
+    fmtDate(s.date) + ", " + s.topics + (s.batch ? " (" + s.batch + ")" : "") + (s.aud !== "ASM" ? ", " + AUD[s.aud] : "") + (isAdmin() ? ", " + s.trainer : "") + " - " + s.n + " present"
   ]), isAdmin() ? "All sessions" : "All my sessions", keepS);
 }
 
 function filtered() {
   const from = $("fFrom").value, to = $("fTo").value;
-  const t = $("fTrainer").value, p = $("fTopic").value, s = $("fSession").value;
+  const t = $("fTrainer").value, p = $("fTopic").value, s = $("fSession").value, a = $("fAudience").value;
   return ROWS.filter((r) =>
+    (!a || audOf(r) === a) &&
     (!from || r.date >= from) && (!to || r.date <= to) &&
     (!t || r.trainer === t) && (!s || r.sessionId === s) &&
     (!p || topicsOf(r).includes(p)));
 }
 
 $("fTrainer").addEventListener("change", () => { $("fSession").value = ""; buildFilters(); render(); });
-["fFrom", "fTo", "fSession", "fTopic"].forEach((id) => $(id).addEventListener("change", render));
+["fFrom", "fTo", "fSession", "fTopic", "fAudience"].forEach((id) => $(id).addEventListener("change", render));
 
 /* ---------- Drawing ---------- */
 
@@ -384,59 +401,89 @@ function render() {
 
   const people = new Set(rows.map((r) => r.asmId || r.mobile));
   const sessions = new Set(rows.map((r) => r.sessionId));
-  $("kAtt").textContent = rows.length;
+  $("kEmp").textContent = rows.filter((r) => audOf(r) !== "Retailer").length;
+  $("kRet").textContent = rows.filter((r) => audOf(r) === "Retailer").length;
   $("kPeople").textContent = people.size;
   $("kSessions").textContent = sessions.size;
-  $("kOff").textContent = rows.filter((r) => r.inRoster !== "Yes").length;
+  $("kOff").textContent = rows.filter((r) => audOf(r) !== "Retailer" && r.inRoster !== "Yes").length;
 
   renderBars($("bTrainer"), countEntries(rows.map((r) => r.trainer)));
+  renderBars($("bAudience"), countEntries(rows.map((r) => AUD[audOf(r)] || audOf(r))));
   renderBars($("bTopic"), countEntries([].concat(...rows.map(topicsOf))));
-  renderBars($("bZone"), countEntries(rows.map((r) => r.zone)));
+  renderBars($("bZone"), countEntries(rows.filter((r) => audOf(r) !== "Retailer").map((r) => r.zone)));
   renderBars($("bState"), countEntries(rows.map((r) => r.state)));
 
   // Sessions table (tap a row to pick that session)
   const sm = new Map();
   rows.forEach((r) => {
-    if (!sm.has(r.sessionId)) sm.set(r.sessionId, { id: r.sessionId, date: r.date, trainer: r.trainer, topics: topicsOf(r).join(", "), batch: r.batch, n: 0 });
+    if (!sm.has(r.sessionId)) sm.set(r.sessionId, { id: r.sessionId, date: r.date, trainer: r.trainer, topics: topicsOf(r).join(", "), batch: r.batch, aud: audOf(r), n: 0 });
     sm.get(r.sessionId).n++;
   });
   const sessCols = [{ label: "Date", get: (s) => fmtDate(s.date) }];
   if (isAdmin()) sessCols.push({ label: "Trainer", get: (s) => s.trainer });
-  sessCols.push({ label: "Topics", get: (s) => s.topics }, { label: "Batch", get: (s) => s.batch }, { label: "Attendees", num: true, get: (s) => s.n });
+  sessCols.push({ label: "Topics", get: (s) => s.topics }, { label: "Audience", get: (s) => AUD[s.aud] || s.aud }, { label: "Batch", get: (s) => s.batch }, { label: "Attendees", num: true, get: (s) => s.n });
   fillTable($("tSessions"), sessCols,
     Array.from(sm.values()).sort((a, b) => (a.date < b.date ? 1 : -1)),
     "No sessions for this filter.",
-    (s) => { $("fSession").value = s.id; render(); $("pTitle").scrollIntoView({ behavior: "smooth", block: "start" }); });
+    (s) => { $("fSession").value = s.id; render(); ($("empBlock").hidden ? $("retBlock") : $("empBlock")).scrollIntoView({ behavior: "smooth", block: "start" }); });
 
-  // Participants (newest first)
-  const list = rows.slice().reverse();
-  const shown = list.slice(0, 500);
-  const partCols = [
+  // Employees (ASM and Sales) and Retailers are listed separately, newest first
+  const emp = rows.filter((r) => audOf(r) !== "Retailer").reverse();
+  const ret = rows.filter((r) => audOf(r) === "Retailer").reverse();
+
+  const empCols = [
     { label: "Time", get: (r) => r.ts }, { label: "Name", get: (r) => r.name },
-    { label: "ASM ID", get: (r) => r.asmId }, { label: "Mobile", get: (r) => r.mobile },
+    { label: "ID", get: (r) => r.asmId }, { label: "Mobile", get: (r) => r.mobile },
     { label: "Zone", get: (r) => r.zone }, { label: "State", get: (r) => r.state },
-    { label: "Cluster", get: (r) => r.cluster }, { label: "Topics", get: (r) => topicsOf(r).join(", ") }
+    { label: "Cluster", get: (r) => r.cluster },
+    { label: "Audience", get: (r) => AUD[audOf(r)] || audOf(r) }, { label: "Topics", get: (r) => topicsOf(r).join(", ") }
   ];
-  if (isAdmin()) partCols.push({ label: "Trainer", get: (r) => r.trainer });
-  fillTable($("tParticipants"), partCols, shown, "No participants for this filter.");
-  $("pTitle").textContent = "Participants (" + rows.length + ")";
-  $("recNote").textContent = list.length > shown.length ? "Showing the latest 500 of " + list.length + ". Download the CSV for everything." : "";
+  const retCols = [
+    { label: "Time", get: (r) => r.ts }, { label: "Name", get: (r) => r.name },
+    { label: "Mobile", get: (r) => r.mobile }, { label: "State", get: (r) => r.state },
+    { label: "Retailer code", get: (r) => r.retailerCode }, { label: "Topics", get: (r) => topicsOf(r).join(", ") }
+  ];
+  if (isAdmin()) { empCols.push({ label: "Trainer", get: (r) => r.trainer }); retCols.push({ label: "Trainer", get: (r) => r.trainer }); }
+
+  fillTable($("tEmployees"), empCols, emp.slice(0, 500), "No employees for this filter.");
+  fillTable($("tRetailers"), retCols, ret.slice(0, 500), "No retailers for this filter.");
+  $("pTitle").textContent = "Employees, ASM and Sales (" + emp.length + ")";
+  $("rTitle").textContent = "Retailers (" + ret.length + ")";
+  $("empNote").textContent = emp.length > 500 ? "Showing the latest 500 of " + emp.length + ". Download the CSV for everything." : "";
+  $("retNote").textContent = ret.length > 500 ? "Showing the latest 500 of " + ret.length + ". Download the CSV for everything." : "";
+
+  // Show a section only when it has something to show (or when the Audience filter asks for it)
+  const a = $("fAudience").value;
+  const anyEmp = ROWS.some((r) => audOf(r) !== "Retailer"), anyRet = ROWS.some((r) => audOf(r) === "Retailer");
+  $("empBlock").hidden = a ? a === "Retailer" : !(anyEmp || !anyRet);
+  $("retBlock").hidden = a ? a !== "Retailer" : !anyRet;
 }
 
 /* ---------- CSV download ---------- */
 
-$("csv").addEventListener("click", () => {
-  const rows = filtered();
-  const head = ["Timestamp", "Session ID", "Date", "Trainer", "Topics", "Batch", "Name", "ASM ID", "Mobile", "Zone", "State", "Cluster", "In Roster"];
-  const keys = ["ts", "sessionId", "date", "trainer", "topics", "batch", "name", "asmId", "mobile", "zone", "state", "cluster", "inRoster"];
+function downloadCsv(fileBase, head, keys, rows) {
   const esc = (v) => '"' + String(v == null ? "" : v).replace(/"/g, '""') + '"';
   const lines = [head.map(esc).join(",")].concat(rows.map((r) => keys.map((k) => esc(r[k])).join(",")));
   const blob = new Blob(["\ufeff" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = "attendance" + (isAdmin() ? "" : "-" + AUTH.trainer.replace(/\s+/g, "-").toLowerCase()) + ".csv";
+  a.download = fileBase + (isAdmin() ? "" : "-" + AUTH.trainer.replace(/\s+/g, "-").toLowerCase()) + ".csv";
   a.click();
   URL.revokeObjectURL(a.href);
+}
+
+$("csvEmp").addEventListener("click", () => {
+  downloadCsv("attendance-employees",
+    ["Timestamp", "Session ID", "Date", "Trainer", "Topics", "Batch", "Name", "ID", "Mobile", "Zone", "State", "Cluster", "In Roster", "Audience"],
+    ["ts", "sessionId", "date", "trainer", "topics", "batch", "name", "asmId", "mobile", "zone", "state", "cluster", "inRoster", "audience"],
+    filtered().filter((r) => audOf(r) !== "Retailer"));
+});
+
+$("csvRet").addEventListener("click", () => {
+  downloadCsv("attendance-retailers",
+    ["Timestamp", "Session ID", "Date", "Trainer", "Topics", "Batch", "Name", "Mobile", "State", "Retailer Code"],
+    ["ts", "sessionId", "date", "trainer", "topics", "batch", "name", "mobile", "state", "retailerCode"],
+    filtered().filter((r) => audOf(r) === "Retailer"));
 });
 
 /* ---------- Roster: sync and upload (admin only) ---------- */
