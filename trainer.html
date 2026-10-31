@@ -29,6 +29,7 @@
     <label for="audience">Who is this session for?</label>
     <select id="audience">
       <option value="Sales">Sales employees</option>
+      <option value="HO">Head office Employees</option>
       <option value="Retailer">Retailers</option>
       <option value="Sampark">Sampark</option>
       <option value="Mitra">Mitra</option>
@@ -68,7 +69,7 @@
 <script src="config.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
-const AUD = { Sales: "Sales employees", Retailer: "Retailers", Sampark: "Sampark", Mitra: "Mitra" };
+const AUD = { Sales: "Sales employees", HO: "Head office Employees", Retailer: "Retailers", Sampark: "Sampark", Mitra: "Mitra" };
 let currentUrl = "";
 let currentInfo = null;
 
