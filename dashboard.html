@@ -65,7 +65,8 @@
     </div>
     <div class="btns">
       <button id="refresh" class="ghost" type="button">Refresh</button>
-      <button id="csvEmp" class="ghost" type="button">Employees CSV</button>
+      <button id="csvEmp" class="ghost" type="button">Sales employees CSV</button>
+      <button id="csvHO" class="ghost" type="button">Head office CSV</button>
       <button id="csvRet" class="ghost" type="button">Retailers, Sampark, Mitra CSV</button>
       <button id="signout" class="ghost" type="button">Sign out</button>
     </div>
@@ -84,6 +85,7 @@
 
   <div class="kpis">
     <div class="kpi"><b id="kEmp">0</b><span>Sales employees present</span></div>
+    <div class="kpi"><b id="kHO">0</b><span>Head office Employees present</span></div>
     <div class="kpi"><b id="kRet">0</b><span>Retailers present</span></div>
     <div class="kpi"><b id="kSam">0</b><span>Sampark present</span></div>
     <div class="kpi"><b id="kMit">0</b><span>Mitra present</span></div>
@@ -109,6 +111,12 @@
     <h2 id="pTitle">Employees</h2>
     <div class="tablewrap"><table id="tEmployees"><thead></thead><tbody></tbody></table></div>
     <p class="hint" id="empNote"></p>
+  </div>
+
+  <div id="hoBlock">
+    <h2 id="hTitle">Head office Employees</h2>
+    <div class="tablewrap"><table id="tHO"><thead></thead><tbody></tbody></table></div>
+    <p class="hint" id="hoNote"></p>
   </div>
 
   <div id="retBlock">
@@ -150,12 +158,14 @@
 const $ = (id) => document.getElementById(id);
 const ADMIN = "__admin__";
 const REFRESH_MS = 30000;
-const AUD = { Sales: "Sales employees", Retailer: "Retailers", Sampark: "Sampark", Mitra: "Mitra" };
+const AUD = { Sales: "Sales employees", HO: "Head office Employees", Retailer: "Retailers", Sampark: "Sampark", Mitra: "Mitra" };
 const SHORT = ["Retailer", "Sampark", "Mitra"];
 // Older rows say ASM (or nothing); they are shown as Sales employees.
 const audOf = (r) => { const a = r.audience || "ASM"; return a === "ASM" ? "Sales" : a; };
 const isShort = (r) => SHORT.includes(audOf(r));
-const isEmp = (r) => !isShort(r);
+const isRoster = (r) => !isShort(r);          // Sales and Head office both use the roster form
+const isEmp = (r) => audOf(r) === "Sales";
+const isHO = (r) => audOf(r) === "HO";
 
 let AUTH = null;      // { role: "admin" | "trainer", trainer, pin }
 let ROWS = [];
@@ -409,17 +419,18 @@ function render() {
   const sessions = new Set(rows.map((r) => r.sessionId));
   const count = (a) => rows.filter((r) => audOf(r) === a).length;
   $("kEmp").textContent = count("Sales");
+  $("kHO").textContent = count("HO");
   $("kRet").textContent = count("Retailer");
   $("kSam").textContent = count("Sampark");
   $("kMit").textContent = count("Mitra");
   $("kPeople").textContent = people.size;
   $("kSessions").textContent = sessions.size;
-  $("kOff").textContent = rows.filter((r) => isEmp(r) && r.inRoster !== "Yes").length;
+  $("kOff").textContent = rows.filter((r) => isRoster(r) && r.inRoster !== "Yes").length;
 
   renderBars($("bTrainer"), countEntries(rows.map((r) => r.trainer)));
   renderBars($("bAudience"), countEntries(rows.map((r) => AUD[audOf(r)] || audOf(r))));
   renderBars($("bTopic"), countEntries([].concat(...rows.map(topicsOf))));
-  renderBars($("bZone"), countEntries(rows.filter((r) => isEmp(r)).map((r) => r.zone)));
+  renderBars($("bZone"), countEntries(rows.filter((r) => isRoster(r)).map((r) => r.zone)));
   renderBars($("bState"), countEntries(rows.map((r) => r.state)));
 
   // Sessions table (tap a row to pick that session)
@@ -434,10 +445,11 @@ function render() {
   fillTable($("tSessions"), sessCols,
     Array.from(sm.values()).sort((a, b) => (a.date < b.date ? 1 : -1)),
     "No sessions for this filter.",
-    (s) => { $("fSession").value = s.id; render(); ($("empBlock").hidden ? $("retBlock") : $("empBlock")).scrollIntoView({ behavior: "smooth", block: "start" }); });
+    (s) => { $("fSession").value = s.id; render(); [$("empBlock"), $("hoBlock"), $("retBlock")].find((b) => !b.hidden).scrollIntoView({ behavior: "smooth", block: "start" }); });
 
   // Employees (ASM and Sales) and Retailers are listed separately, newest first
   const emp = rows.filter((r) => isEmp(r)).reverse();
+  const ho = rows.filter((r) => isHO(r)).reverse();
   const ret = rows.filter((r) => isShort(r)).reverse();
 
   const empCols = [
@@ -456,16 +468,20 @@ function render() {
   if (isAdmin()) { empCols.push({ label: "Trainer", get: (r) => r.trainer }); retCols.push({ label: "Trainer", get: (r) => r.trainer }); }
 
   fillTable($("tEmployees"), empCols, emp.slice(0, 500), "No employees for this filter.");
+  fillTable($("tHO"), empCols, ho.slice(0, 500), "No Head office Employees for this filter.");
   fillTable($("tRetailers"), retCols, ret.slice(0, 500), "No retailers, Sampark or Mitra for this filter.");
   $("pTitle").textContent = "Sales employees (" + emp.length + ")";
+  $("hTitle").textContent = "Head office Employees (" + ho.length + ")";
+  $("hoNote").textContent = ho.length > 500 ? "Showing the latest 500 of " + ho.length + ". Download the CSV for everything." : "";
   $("rTitle").textContent = "Retailers, Sampark and Mitra (" + ret.length + ")";
   $("empNote").textContent = emp.length > 500 ? "Showing the latest 500 of " + emp.length + ". Download the CSV for everything." : "";
   $("retNote").textContent = ret.length > 500 ? "Showing the latest 500 of " + ret.length + ". Download the CSV for everything." : "";
 
   // Show a section only when it has something to show (or when the Audience filter asks for it)
   const a = $("fAudience").value;
-  const anyEmp = ROWS.some((r) => isEmp(r)), anyRet = ROWS.some((r) => isShort(r));
-  $("empBlock").hidden = a ? SHORT.includes(a) : !(anyEmp || !anyRet);
+  const anyEmp = ROWS.some((r) => isEmp(r)), anyHO = ROWS.some((r) => isHO(r)), anyRet = ROWS.some((r) => isShort(r));
+  $("empBlock").hidden = a ? a !== "Sales" : !(anyEmp || !(anyHO || anyRet));
+  $("hoBlock").hidden = a ? a !== "HO" : !anyHO;
   $("retBlock").hidden = a ? !SHORT.includes(a) : !anyRet;
 }
 
@@ -483,10 +499,17 @@ function downloadCsv(fileBase, head, keys, rows) {
 }
 
 $("csvEmp").addEventListener("click", () => {
-  downloadCsv("attendance-employees",
+  downloadCsv("attendance-sales-employees",
     ["Timestamp", "Session ID", "Date", "Trainer", "Topics", "Batch", "Name", "ID", "Mobile", "Zone", "State", "Cluster", "In Roster", "Audience"],
     ["ts", "sessionId", "date", "trainer", "topics", "batch", "name", "asmId", "mobile", "zone", "state", "cluster", "inRoster", "audience"],
     filtered().filter((r) => isEmp(r)));
+});
+
+$("csvHO").addEventListener("click", () => {
+  downloadCsv("attendance-head-office",
+    ["Timestamp", "Session ID", "Date", "Trainer", "Topics", "Batch", "Name", "ID", "Mobile", "Zone", "State", "Cluster", "In Roster", "Audience"],
+    ["ts", "sessionId", "date", "trainer", "topics", "batch", "name", "asmId", "mobile", "zone", "state", "cluster", "inRoster", "audience"],
+    filtered().filter((r) => isHO(r)));
 });
 
 $("csvRet").addEventListener("click", () => {
