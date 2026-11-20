@@ -38,10 +38,6 @@
     <label>Topics</label>
     <div class="hint" style="margin-top:0">Tick every topic covered. Most sessions have 2 or 3.</div>
     <div id="topics" class="checks"></div>
-    <div class="inline">
-      <input id="topicOther" type="text" placeholder="Other topic: type it here" maxlength="100">
-      <button id="addTopic" type="button" class="ghost">Add topic</button>
-    </div>
 
     <label for="date">Date</label>
     <input id="date" type="date">
@@ -136,27 +132,15 @@ async function init() {
   }
 }
 
-function addOtherTopic() {
-  const v = $("topicOther").value.trim();
-  if (!v) return;
-  addTopicBox(v, true);
-  $("topicOther").value = "";
-}
-$("addTopic").addEventListener("click", addOtherTopic);
-$("topicOther").addEventListener("keydown", (e) => {
-  if (e.key === "Enter") { e.preventDefault(); addOtherTopic(); }
-});
-
 $("go").addEventListener("click", async () => {
   showError("");
-  addOtherTopic(); // pick up a topic that was typed but not added yet
   const trainer = $("trainer").value;
   const topics = selectedTopics();
   const date = $("date").value;
   const batch = $("batch").value.trim();
   const audience = $("audience").value;
   if (!trainer) return showError("Select your name.");
-  if (!topics.length) return showError("Tick at least one topic, or add one under Other.");
+  if (!topics.length) return showError("Tick at least one topic.");
   if (!date) return showError("Select the session date.");
 
   const btn = $("go");
